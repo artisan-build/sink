@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Commands;
 
+use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Storage;
 
 final class SinkPruneCommand extends Command
 {
@@ -25,7 +25,7 @@ final class SinkPruneCommand extends Command
             ->pluck('id');
 
         foreach ($expired as $messageId) {
-            $deleted += $this->deleteMessage((int) $messageId);
+            $deleted += app(DeleteMessage::class)((int) $messageId);
         }
 
         $maxMessages = config('sink-server.retention.max_messages');
@@ -38,7 +38,7 @@ final class SinkPruneCommand extends Command
                 ->pluck('id');
 
             foreach ($overflow as $messageId) {
-                $deleted += $this->deleteMessage((int) $messageId);
+                $deleted += app(DeleteMessage::class)((int) $messageId);
             }
         }
 
@@ -56,33 +56,12 @@ final class SinkPruneCommand extends Command
                     break;
                 }
 
-                $deleted += $this->deleteMessage((int) $oldest->getKey());
+                $deleted += app(DeleteMessage::class)((int) $oldest->getKey());
             }
         }
 
         $this->info("Pruned {$deleted} Sink messages.");
 
         return self::SUCCESS;
-    }
-
-    private function deleteMessage(int $messageId): int
-    {
-        /** @var Message|null $message */
-        $message = Message::query()->with('attachments')->find($messageId);
-
-        if (! $message instanceof Message) {
-            return 0;
-        }
-
-        $disk = Storage::disk((string) config('sink-server.disk'));
-        $disk->delete($message->raw_object_key);
-
-        foreach ($message->attachments as $attachment) {
-            $disk->delete($attachment->object_key);
-        }
-
-        $message->delete();
-
-        return 1;
     }
 }
