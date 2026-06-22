@@ -1,0 +1,38 @@
+{
+    "name": "artisan-build/sink-contracts",
+    "description": "The versioned wire envelope shared between sink-client and sink-server. The single place Sink's wire compatibility lives.",
+    "keywords": ["sink", "mail", "laravel", "contracts"],
+    "license": "MIT",
+    "type": "library",
+    "version": "1.0.0",
+    "require": {
+        "php": "^8.3"
+    },
+    "require-dev": {
+        "pestphp/pest": "^4.0",
+        "laravel/pint": "^1.27"
+    },
+    "autoload": {
+        "psr-4": {
+            "ArtisanBuild\\SinkContracts\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ArtisanBuild\\SinkContracts\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "pest",
+        "lint": "pint",
+        "lint:test": "pint --test"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
