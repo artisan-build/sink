@@ -4,27 +4,29 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "dfc6fefef025d38c1cb90fdf6e846c2f",
+    "content-hash": "f3781c1f8871126993c45c5066591067",
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.1.0",
+            "version": "v0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "c42aec7ae8ab31ec21dad31a29cbb635927cb52f"
+                "reference": "2b7cd4f0642e64dd05e62e88b1662310e9f5a9af"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/c42aec7ae8ab31ec21dad31a29cbb635927cb52f",
-                "reference": "c42aec7ae8ab31ec21dad31a29cbb635927cb52f",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/2b7cd4f0642e64dd05e62e88b1662310e9f5a9af",
+                "reference": "2b7cd4f0642e64dd05e62e88b1662310e9f5a9af",
                 "shasum": ""
             },
             "require": {
+                "illuminate/auth": "^13.0",
                 "illuminate/console": "^13.0",
                 "illuminate/contracts": "^13.0",
                 "illuminate/database": "^13.0",
                 "illuminate/process": "^13.0",
+                "illuminate/routing": "^13.0",
                 "illuminate/support": "^13.0",
                 "php": "^8.3"
             },
@@ -60,9 +62,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.1.0"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.1.1"
             },
-            "time": "2026-06-15T09:17:16+00:00"
+            "time": "2026-06-22T21:51:37+00:00"
         },
         {
             "name": "artisan-build/sink-contracts",
@@ -123,7 +125,7 @@
             "dist": {
                 "type": "path",
                 "url": "packages/sink-server",
-                "reference": "64da8f49c5a5c505f53f391a365899a8635e437d"
+                "reference": "8614666b74257ed52b0d1d9718b7c94bd637e53c"
             },
             "require": {
                 "artisan-build/built-for-cloud": "^0.1",
@@ -158,6 +160,7 @@
             },
             "autoload-dev": {
                 "psr-4": {
+                    "ArtisanBuild\\SinkServer\\Database\\Factories\\": "database/factories/",
                     "ArtisanBuild\\SinkServer\\Tests\\": "tests/"
                 }
             },
