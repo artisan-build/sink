@@ -14,7 +14,6 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "artisan-build/sink-client": "^1.0",
         "artisan-build/sink-server": "^1.0",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37.2",
