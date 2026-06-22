@@ -52,10 +52,18 @@ it('emits exact wire keys with reserved stream and serialized truncation', funct
 
 it('stamps and peeks envelope versions', function (): void {
     $envelope = Envelope::make('01K2SMVCA7EA6Y3KFE3S40QY2C', '2026-06-22T12:00:00+00:00', 'bWltZQ==');
+    $restored = Envelope::fromArray([
+        'envelope_version' => '1',
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'sent_at' => '2026-06-22T12:00:00+00:00',
+        'message' => 'bWltZQ==',
+    ]);
 
     expect(Envelope::VERSION)->toBe(1)
         ->and($envelope->envelopeVersion)->toBe(1)
-        ->and(Envelope::versionFrom(['envelope_version' => 2]))->toBe(2);
+        ->and(Envelope::versionFrom(['envelope_version' => 2]))->toBe(2)
+        ->and(Envelope::versionFrom(['envelope_version' => '3']))->toBe(3)
+        ->and($restored->envelopeVersion)->toBe(1);
 });
 
 it('rejects a missing version when peeking', function (): void {
@@ -96,6 +104,23 @@ it('rejects malformed envelopes', function (array|string $payload): void {
         'sent_at' => '2026-06-22T12:00:00+00:00',
         'message' => 'bWltZQ==',
     ]],
+    'integer idempotency key' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => 123,
+        'sent_at' => '2026-06-22T12:00:00+00:00',
+        'message' => 'bWltZQ==',
+    ]],
+    'missing sent at' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'message' => 'bWltZQ==',
+    ]],
+    'empty sent at' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'sent_at' => '',
+        'message' => 'bWltZQ==',
+    ]],
     'missing message' => [[
         'envelope_version' => Envelope::VERSION,
         'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
@@ -107,6 +132,26 @@ it('rejects malformed envelopes', function (array|string $payload): void {
         'sent_at' => '2026-06-22T12:00:00+00:00',
         'message' => '',
     ]],
+    'array message' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'sent_at' => '2026-06-22T12:00:00+00:00',
+        'message' => ['bWltZQ=='],
+    ]],
+    'integer stream' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'sent_at' => '2026-06-22T12:00:00+00:00',
+        'message' => 'bWltZQ==',
+        'stream' => 123,
+    ]],
+    'integer truncation' => [[
+        'envelope_version' => Envelope::VERSION,
+        'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
+        'sent_at' => '2026-06-22T12:00:00+00:00',
+        'message' => 'bWltZQ==',
+        'truncation' => 123,
+    ]],
     'unrecognized truncation' => [[
         'envelope_version' => Envelope::VERSION,
         'idempotency_key' => '01K2SMVCA7EA6Y3KFE3S40QY2C',
@@ -115,4 +160,7 @@ it('rejects malformed envelopes', function (array|string $payload): void {
         'truncation' => 'body_only',
     ]],
     'invalid json' => ['not json'],
+    'json empty list' => ['[]'],
+    'json non-empty list' => ['[1,2]'],
+    'json scalar' => ['5'],
 ])->throws(InvalidEnvelope::class);
