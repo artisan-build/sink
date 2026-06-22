@@ -8,6 +8,7 @@ use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
 use ArtisanBuild\SinkServer\SinkServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Livewire\LivewireServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
@@ -27,6 +28,7 @@ abstract class TestCase extends Orchestra
     {
         return [
             BuiltForCloudServiceProvider::class,
+            LivewireServiceProvider::class,
             SinkServerServiceProvider::class,
         ];
     }

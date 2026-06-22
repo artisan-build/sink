@@ -6,9 +6,12 @@ namespace ArtisanBuild\SinkServer;
 
 use ArtisanBuild\SinkServer\Commands\SinkMaintainCommand;
 use ArtisanBuild\SinkServer\Commands\SinkPruneCommand;
+use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
+use ArtisanBuild\SinkServer\Http\Livewire\MessageDetail;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Livewire\Livewire;
 
 final class SinkServerServiceProvider extends ServiceProvider
 {
@@ -26,9 +29,18 @@ final class SinkServerServiceProvider extends ServiceProvider
         ], 'sink-server-config');
 
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'sink-server');
+
+        Livewire::addNamespace('sink-server', classNamespace: 'ArtisanBuild\\SinkServer\\Http\\Livewire');
+        Livewire::component('sink-server::inbox-list', InboxList::class);
+        Livewire::component('sink-server::message-detail', MessageDetail::class);
 
         Route::prefix((string) config('sink-server.route_prefix', ''))
             ->group(__DIR__.'/../routes/sink-server.php');
+
+        Route::prefix((string) config('sink-server.route_prefix', ''))
+            ->middleware(['web', 'auth', 'verified', 'bfc.auth'])
+            ->group(__DIR__.'/../routes/sink-server-ui.php');
 
         if ($this->app->runningInConsole()) {
             $this->commands([
