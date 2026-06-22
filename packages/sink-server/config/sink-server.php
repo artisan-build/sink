@@ -19,4 +19,8 @@ return [
         'max_messages' => env('SINK_MAX_MESSAGES') === null ? null : (int) env('SINK_MAX_MESSAGES'),
         'max_total_bytes' => env('SINK_MAX_TOTAL_BYTES') === null ? null : (int) env('SINK_MAX_TOTAL_BYTES'),
     ],
+    'mcp' => [
+        'path' => env('SINK_MCP_PATH', '/mcp'),
+        'local_name' => env('SINK_MCP_LOCAL_NAME', 'sink'),
+    ],
 ];

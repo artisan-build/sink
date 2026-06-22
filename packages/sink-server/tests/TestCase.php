@@ -8,6 +8,7 @@ use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
 use ArtisanBuild\SinkServer\SinkServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Mcp\Server\McpServiceProvider;
 use Livewire\LivewireServiceProvider;
 use Orchestra\Testbench\TestCase as Orchestra;
 
@@ -28,6 +29,7 @@ abstract class TestCase extends Orchestra
     {
         return [
             BuiltForCloudServiceProvider::class,
+            McpServiceProvider::class,
             LivewireServiceProvider::class,
             SinkServerServiceProvider::class,
         ];

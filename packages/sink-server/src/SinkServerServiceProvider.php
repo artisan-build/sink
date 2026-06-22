@@ -8,9 +8,12 @@ use ArtisanBuild\SinkServer\Commands\SinkMaintainCommand;
 use ArtisanBuild\SinkServer\Commands\SinkPruneCommand;
 use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 use ArtisanBuild\SinkServer\Http\Livewire\MessageDetail;
+use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
+use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Mcp\Facades\Mcp;
 use Livewire\Livewire;
 
 final class SinkServerServiceProvider extends ServiceProvider
@@ -41,6 +44,13 @@ final class SinkServerServiceProvider extends ServiceProvider
         Route::prefix((string) config('sink-server.route_prefix', ''))
             ->middleware(['web', 'auth', 'verified', 'bfc.auth'])
             ->group(__DIR__.'/../routes/sink-server-ui.php');
+
+        $this->app->booted(function (): void {
+            Mcp::web((string) config('sink-server.mcp.path', '/mcp'), SinkMcpServer::class)
+                ->middleware([AuthenticateSinkMcp::class]);
+
+            Mcp::local((string) config('sink-server.mcp.local_name', 'sink'), SinkMcpServer::class);
+        });
 
         if ($this->app->runningInConsole()) {
             $this->commands([
