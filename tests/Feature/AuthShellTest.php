@@ -7,6 +7,7 @@ use ArtisanBuild\BuiltForCloud\Invitation;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Fortify\Features;
+use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
 use Livewire\Livewire;
 
 test('users table has is admin and user casts it to boolean', function (): void {
@@ -90,6 +91,25 @@ test('invalid expired and already accepted invitations do not show an open signu
         'unknown@test',
     ])->count())->toBe(0)
         ->and(User::query()->where('email', 'accepted@test')->count())->toBe(1);
+});
+
+test('invitation accept guard properties cannot be forced from the client', function (): void {
+    $userCount = User::query()->count();
+
+    try {
+        Livewire::test(AcceptInvitation::class, ['token' => 'bogus-token'])
+            ->set('name', 'Forced User')
+            ->set('password', 'secret-pass')
+            ->set('password_confirmation', 'secret-pass')
+            ->set('validInvitation', true)
+            ->set('token', 'bogus-token')
+            ->call('accept');
+    } catch (CannotUpdateLockedPropertyException $exception) {
+        expect($exception->property)->toBeIn(['validInvitation', 'token']);
+    }
+
+    $this->assertDatabaseCount('users', $userCount);
+    $this->assertGuest();
 });
 
 test('admin invitations page is admin only and creates invitations', function (): void {

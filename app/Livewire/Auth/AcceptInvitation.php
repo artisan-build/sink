@@ -8,14 +8,17 @@ use ArtisanBuild\BuiltForCloud\Invitation;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\View\View;
+use Livewire\Attributes\Locked;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 #[Title('Accept invitation')]
 class AcceptInvitation extends Component
 {
+    #[Locked]
     public string $token = '';
 
+    #[Locked]
     public string $email = '';
 
     public string $name = '';
@@ -24,6 +27,7 @@ class AcceptInvitation extends Component
 
     public string $password_confirmation = '';
 
+    #[Locked]
     public bool $validInvitation = false;
 
     public function mount(string $token): void
