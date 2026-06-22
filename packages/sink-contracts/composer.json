@@ -1,7 +1,7 @@
 {
     "name": "artisan-build/sink-contracts",
-    "description": "The versioned wire envelope shared between sink-client and sink-server. The single place Sink's wire compatibility lives.",
-    "keywords": ["sink", "mail", "laravel", "contracts"],
+    "description": "The thin, versioned mail capture envelope shared between sink-client and sink-server.",
+    "keywords": ["sink", "mail", "laravel", "contracts", "envelope"],
     "license": "MIT",
     "type": "library",
     "version": "1.0.0",
