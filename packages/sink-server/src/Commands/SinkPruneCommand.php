@@ -52,6 +52,10 @@ final class SinkPruneCommand extends Command
                     break;
                 }
 
+                if ((int) $oldest->size_bytes === 0) {
+                    break;
+                }
+
                 $deleted += $this->deleteMessage((int) $oldest->getKey());
             }
         }

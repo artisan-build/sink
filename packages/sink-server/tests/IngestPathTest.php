@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
 use ArtisanBuild\SinkServer\Jobs\ParseMessage;
@@ -10,6 +11,7 @@ use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -18,7 +20,7 @@ beforeEach(function (): void {
 });
 
 it('authenticates ingest requests with the fallback token', function (): void {
-    $payload = envelopePayload('auth-key', simpleMime());
+    $payload = envelopePayload((string) Str::ulid(), simpleMime());
 
     $this->postJson('/ingest', $payload)->assertUnauthorized();
     $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer wrong-token'])->assertUnauthorized();
@@ -29,21 +31,21 @@ it('authenticates ingest requests with the fallback token', function (): void {
 });
 
 it('rejects unsupported or malformed envelopes', function (): void {
-    $newer = envelopePayload('newer-key', simpleMime());
+    $newer = envelopePayload((string) Str::ulid(), simpleMime());
     $newer['envelope_version'] = Envelope::VERSION + 1;
 
     $this->postJson('/ingest', $newer, ['Authorization' => 'Bearer test-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope v'.(Envelope::VERSION + 1).' is newer than this Sink instance (max v'.Envelope::VERSION.') — upgrade your Sink server.');
 
-    $missingVersion = envelopePayload('missing-version-key', simpleMime());
+    $missingVersion = envelopePayload((string) Str::ulid(), simpleMime());
     unset($missingVersion['envelope_version']);
 
     $this->postJson('/ingest', $missingVersion, ['Authorization' => 'Bearer test-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope is missing a numeric "envelope_version".');
 
-    $missingIdempotency = envelopePayload('missing-id-key', simpleMime());
+    $missingIdempotency = envelopePayload((string) Str::ulid(), simpleMime());
     unset($missingIdempotency['idempotency_key']);
 
     $this->postJson('/ingest', $missingIdempotency, ['Authorization' => 'Bearer test-token'])
@@ -52,28 +54,31 @@ it('rejects unsupported or malformed envelopes', function (): void {
 });
 
 it('upserts messages by idempotency key', function (): void {
-    $this->postJson('/ingest', envelopePayload('same-key', simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $sameKey = (string) Str::ulid();
+
+    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
-    $this->postJson('/ingest', envelopePayload('same-key', simpleMime('Replay')), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime('Replay')), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
 
-    expect(Message::query()->where('idempotency_key', 'same-key')->count())->toBe(1);
+    expect(Message::query()->where('idempotency_key', $sameKey)->count())->toBe(1);
 
-    $this->postJson('/ingest', envelopePayload('other-key-1', simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
-    $this->postJson('/ingest', envelopePayload('other-key-2', simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
 
     expect(Message::query()->count())->toBe(3);
 });
 
 it('stores raw mime bytes in object storage', function (): void {
+    $idempotencyKey = (string) Str::ulid();
     $raw = simpleMime('Stored raw bytes');
 
-    $this->postJson('/ingest', envelopePayload('raw-key', $raw), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, $raw), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
 
-    $message = Message::query()->where('idempotency_key', 'raw-key')->firstOrFail();
+    $message = Message::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
 
     Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
 
@@ -82,9 +87,9 @@ it('stores raw mime bytes in object storage', function (): void {
 });
 
 it('parses metadata links and attachments without persisting body text', function (): void {
-    $raw = multipartMime();
+    $raw = multipartMime('..note.txt');
 
-    $response = $this->postJson('/ingest', envelopePayload('parse-key', $raw), ['Authorization' => 'Bearer test-token'])
+    $response = $this->postJson('/ingest', envelopePayload((string) Str::ulid(), $raw), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
 
     (new ParseMessage((int) $response->json('id')))->handle();
@@ -121,6 +126,49 @@ it('parses metadata links and attachments without persisting body text', functio
     ];
 
     expect(implode(' ', $persisted))->not->toContain('Secret body phrase');
+});
+
+it('rejects non ulid idempotency keys before storage or database writes', function (string $idempotencyKey): void {
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'Envelope "idempotency_key" must be a valid ULID.');
+
+    expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
+})->with([
+    'slash' => '01ARZ3NDEKTSV4RRFFQ69G5FAV/x',
+    'traversal' => '../../x',
+]);
+
+it('isolates idempotency by resolved app id', function (): void {
+    app(TokenRegistry::class)->store('app-a', hash('sha256', 'token-a'));
+    app(TokenRegistry::class)->store('app-b', hash('sha256', 'token-b'));
+
+    $idempotencyKey = (string) Str::ulid();
+
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime('App A')), ['Authorization' => 'Bearer token-a'])
+        ->assertAccepted();
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime('App B')), ['Authorization' => 'Bearer token-b'])
+        ->assertAccepted();
+
+    $messages = Message::query()->where('idempotency_key', $idempotencyKey)->orderBy('app')->get();
+
+    expect($messages)->toHaveCount(2)
+        ->and($messages->pluck('app')->all())->toBe(['app-a', 'app-b'])
+        ->and($messages->pluck('raw_object_key')->all())->toBe([
+            "raw/app-a/{$idempotencyKey}.eml",
+            "raw/app-b/{$idempotencyKey}.eml",
+        ]);
+});
+
+it('dispatches parse jobs on the configured queue after termination', function (): void {
+    config(['sink-server.queue' => 'redis']);
+    Bus::fake();
+
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
+        ->assertAccepted();
+
+    Bus::assertDispatched(ParseMessage::class, fn (ParseMessage $job): bool => $job->connection === 'redis');
 });
 
 it('reports envelope capabilities without authentication', function (): void {
@@ -199,11 +247,11 @@ function simpleMime(string $subject = 'Hello Sink'): string
     return "From: Sender <sender@example.com>\r\nTo: To <to@example.com>\r\nSubject: {$subject}\r\nMessage-ID: <".(string) Str::ulid().'@example.com>'."\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nPlain body.";
 }
 
-function multipartMime(): string
+function multipartMime(string $filename = 'note.txt'): string
 {
     $attachment = base64_encode('Attachment text.');
 
-    return "From: Sender <sender@example.com>\r\nTo: To Person <to@example.com>\r\nCc: Cc Person <cc@example.com>\r\nBcc: Bcc Person <bcc@example.com>\r\nSubject: Sink Parse Test\r\nMessage-ID: <parse@example.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: multipart/alternative; boundary=inner\r\n\r\n--inner\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nSecret body phrase plain.\r\n--inner\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n<html><body>Secret body phrase <a href=\"https://example.com/x\">link</a></body></html>\r\n--inner--\r\n--outer\r\nContent-Type: text/plain; name=\"note.txt\"\r\nContent-Disposition: attachment; filename=\"note.txt\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{$attachment}\r\n--outer--\r\n";
+    return "From: Sender <sender@example.com>\r\nTo: To Person <to@example.com>\r\nCc: Cc Person <cc@example.com>\r\nBcc: Bcc Person <bcc@example.com>\r\nSubject: Sink Parse Test\r\nMessage-ID: <parse@example.com>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: multipart/alternative; boundary=inner\r\n\r\n--inner\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nSecret body phrase plain.\r\n--inner\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n<html><body>Secret body phrase <a href=\"https://example.com/x\">link</a></body></html>\r\n--inner--\r\n--outer\r\nContent-Type: text/plain; name=\"{$filename}\"\r\nContent-Disposition: attachment; filename=\"{$filename}\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{$attachment}\r\n--outer--\r\n";
 }
 
 function scalarValues(array $attributes): array

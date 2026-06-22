@@ -12,7 +12,7 @@ return new class extends Migration
     {
         Schema::connection('sink')->create('messages', function (Blueprint $table): void {
             $table->id();
-            $table->string('idempotency_key')->unique();
+            $table->string('idempotency_key');
             $table->string('app')->index();
             $table->string('stream')->nullable();
             $table->string('subject')->nullable();
@@ -30,6 +30,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['app', 'received_at']);
+            $table->unique(['app', 'idempotency_key']);
         });
     }
 

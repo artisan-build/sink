@@ -55,6 +55,10 @@ final class IngestController
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        if (! preg_match('/^[0-9A-HJKMNP-TV-Z]{26}$/i', $envelope->idempotencyKey)) {
+            return response()->json(['message' => 'Envelope "idempotency_key" must be a valid ULID.'], 422);
+        }
+
         $raw = base64_decode($envelope->message, true);
 
         if ($raw === false) {
@@ -66,6 +70,7 @@ final class IngestController
         Storage::disk((string) config('sink-server.disk'))->put($key, $raw);
 
         $message = Message::query()->updateOrCreate([
+            'app' => $appId,
             'idempotency_key' => $envelope->idempotencyKey,
         ], [
             'app' => $appId,

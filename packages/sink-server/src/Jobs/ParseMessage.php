@@ -7,6 +7,7 @@ namespace ArtisanBuild\SinkServer\Jobs;
 use ArtisanBuild\SinkServer\Models\Message as SinkMessage;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use ZBateson\MailMimeParser\Header\AddressHeader;
@@ -16,6 +17,8 @@ use ZBateson\MailMimeParser\Message\IMessagePart;
 final class ParseMessage implements ShouldQueue
 {
     use Queueable;
+
+    public int $tries = 3;
 
     public function __construct(public readonly int $messageId)
     {
@@ -133,9 +136,23 @@ final class ParseMessage implements ShouldQueue
 
     private function filename(IMessagePart $part, int $index): string
     {
-        $filename = $part->getFilename() ?: "attachment-{$index}";
-        $filename = Str::of($filename)->replace(['/', '\\'], '-')->trim()->toString();
+        $filename = basename(str_replace('\\', '/', $part->getFilename() ?: ''));
+        $filename = Str::of($filename)
+            ->replace(['/', '\\'], '-')
+            ->replace('..', '')
+            ->ltrim(". \t\n\r\0\x0B")
+            ->trim()
+            ->substr(0, 200)
+            ->toString();
 
         return $filename === '' ? "attachment-{$index}" : $filename;
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        Log::warning('Failed to parse Sink message.', [
+            'message_id' => $this->messageId,
+            'exception' => $e->getMessage(),
+        ]);
     }
 }
