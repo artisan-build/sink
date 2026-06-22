@@ -16,9 +16,16 @@
     ],
     "require": {
         "php": "^8.3",
+        "artisan-build/built-for-cloud": "^0.1",
         "artisan-build/sink-contracts": "^1.0",
+        "illuminate/bus": "^13.0",
         "illuminate/contracts": "^13.0",
-        "illuminate/support": "^13.0"
+        "illuminate/database": "^13.0",
+        "illuminate/filesystem": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/queue": "^13.0",
+        "illuminate/support": "^13.0",
+        "zbateson/mail-mime-parser": "^3.0"
     },
     "require-dev": {
         "orchestra/testbench": "^11.0",
@@ -32,6 +39,7 @@
     },
     "autoload-dev": {
         "psr-4": {
+            "ArtisanBuild\\SinkServer\\Database\\Factories\\": "database/factories/",
             "ArtisanBuild\\SinkServer\\Tests\\": "tests/"
         }
     },

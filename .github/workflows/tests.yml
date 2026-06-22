@@ -51,3 +51,6 @@ jobs:
 
       - name: Run Tests
         run: ./vendor/bin/pest
+
+      - name: Run Package Tests
+        run: composer packages:check
