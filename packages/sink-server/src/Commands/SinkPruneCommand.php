@@ -1,0 +1,84 @@
+<?php
+
+declare(strict_types=1);
+
+namespace ArtisanBuild\SinkServer\Commands;
+
+use ArtisanBuild\SinkServer\Models\Message;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Storage;
+
+final class SinkPruneCommand extends Command
+{
+    protected $signature = 'sink:prune';
+
+    protected $description = 'Prune expired Sink messages and object-storage blobs.';
+
+    public function handle(): int
+    {
+        $deleted = 0;
+        $days = (int) config('sink-server.retention.days', 7);
+
+        $expired = Message::query()
+            ->where('received_at', '<', now()->subDays($days))
+            ->orderBy('received_at')
+            ->pluck('id');
+
+        foreach ($expired as $messageId) {
+            $deleted += $this->deleteMessage((int) $messageId);
+        }
+
+        $maxMessages = config('sink-server.retention.max_messages');
+
+        if (is_int($maxMessages) && $maxMessages > 0) {
+            $overflow = Message::query()
+                ->orderByDesc('received_at')
+                ->skip($maxMessages)
+                ->take(PHP_INT_MAX)
+                ->pluck('id');
+
+            foreach ($overflow as $messageId) {
+                $deleted += $this->deleteMessage((int) $messageId);
+            }
+        }
+
+        $maxTotalBytes = config('sink-server.retention.max_total_bytes');
+
+        if (is_int($maxTotalBytes) && $maxTotalBytes > 0) {
+            while ((int) Message::query()->sum('size_bytes') > $maxTotalBytes) {
+                $oldest = Message::query()->orderBy('received_at')->orderBy('id')->first();
+
+                if (! $oldest instanceof Message) {
+                    break;
+                }
+
+                $deleted += $this->deleteMessage((int) $oldest->getKey());
+            }
+        }
+
+        $this->info("Pruned {$deleted} Sink messages.");
+
+        return self::SUCCESS;
+    }
+
+    private function deleteMessage(int $messageId): int
+    {
+        /** @var Message|null $message */
+        $message = Message::query()->with('attachments')->find($messageId);
+
+        if (! $message instanceof Message) {
+            return 0;
+        }
+
+        $disk = Storage::disk((string) config('sink-server.disk'));
+        $disk->delete($message->raw_object_key);
+
+        foreach ($message->attachments as $attachment) {
+            $disk->delete($attachment->object_key);
+        }
+
+        $message->delete();
+
+        return 1;
+    }
+}
