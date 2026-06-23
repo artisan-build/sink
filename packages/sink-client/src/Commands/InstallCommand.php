@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkClient\Commands;
 
+use ArtisanBuild\BuiltForCloud\Commands\Concerns\WritesInstallEnv;
 use Illuminate\Console\Command;
 use JsonException;
 
@@ -13,6 +14,8 @@ use function Laravel\Prompts\text;
 
 final class InstallCommand extends Command
 {
+    use WritesInstallEnv;
+
     protected $signature = 'sink:install
                             {--url= : The Sink server URL}
                             {--token= : The Sink ingest token}';
@@ -33,7 +36,7 @@ final class InstallCommand extends Command
         $token = $this->stringOption('token') ?: password('Sink token', required: true);
 
         $this->writeEnvironment($url, $token);
-        $this->pinComposerConstraint();
+        $this->pinClientComposerConstraint();
         $this->printSummary();
 
         return self::SUCCESS;
@@ -63,7 +66,10 @@ final class InstallCommand extends Command
             mkdir($directory, 0755, true);
         }
 
-        file_put_contents($path, $updated);
+        $this->writeEnvFile($path, [
+            'SINK_URL' => $url,
+            'SINK_TOKEN' => $token,
+        ]);
 
         $this->changes[] = 'Updated '.$path;
     }
@@ -71,7 +77,7 @@ final class InstallCommand extends Command
     /**
      * @throws JsonException
      */
-    private function pinComposerConstraint(): void
+    private function pinClientComposerConstraint(): void
     {
         $path = base_path('composer.json');
 
@@ -79,31 +85,9 @@ final class InstallCommand extends Command
             return;
         }
 
-        $contents = (string) file_get_contents($path);
-        $composer = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+        $major = $this->installedClientMajor();
 
-        if (! is_array($composer)) {
-            return;
-        }
-
-        $require = $composer['require'] ?? [];
-
-        if (! is_array($require)) {
-            $require = [];
-        }
-
-        $current = $require['artisan-build/sink-client'] ?? null;
-
-        if (is_string($current) && $this->isCleanCaretConstraint($current)) {
-            return;
-        }
-
-        $require['artisan-build/sink-client'] = '^'.$this->installedClientMajor();
-        $composer['require'] = $require;
-
-        $updated = json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL;
-
-        if ($updated === $contents) {
+        if ($this->hasPinnedComposerConstraint($path, 'artisan-build/sink-client', $major)) {
             return;
         }
 
@@ -113,34 +97,9 @@ final class InstallCommand extends Command
             return;
         }
 
-        file_put_contents($path, $updated);
+        $this->pinComposerConstraint($path, 'artisan-build/sink-client', $major);
 
         $this->changes[] = 'Updated '.$path;
-    }
-
-    private function setEnvironmentValue(string $contents, string $key, string $value): string
-    {
-        $line = $key.'='.$this->formatEnvironmentValue($value);
-        $pattern = '/^'.preg_quote($key, '/').'=.*$/m';
-
-        if (preg_match($pattern, $contents) === 1) {
-            return preg_replace($pattern, $line, $contents) ?? $contents;
-        }
-
-        if ($contents !== '' && ! str_ends_with($contents, PHP_EOL)) {
-            $contents .= PHP_EOL;
-        }
-
-        return $contents.$line.PHP_EOL;
-    }
-
-    private function formatEnvironmentValue(string $value): string
-    {
-        if ($value === '' || preg_match('/\s|#|=|"|\'/', $value) === 1) {
-            return '"'.str_replace('"', '\\"', $value).'"';
-        }
-
-        return $value;
     }
 
     private function shouldWrite(string $path, string $message): bool
@@ -159,14 +118,17 @@ final class InstallCommand extends Command
         return is_string($value) && $value !== '' ? $value : null;
     }
 
-    private function isCleanCaretConstraint(string $constraint): bool
+    /**
+     * @throws JsonException
+     */
+    private function hasPinnedComposerConstraint(string $path, string $package, int $major): bool
     {
-        return preg_match('/^\^\d/', $constraint) === 1
-            && ! str_contains($constraint, '*')
-            && ! str_contains(strtolower($constraint), 'dev')
-            && ! str_contains($constraint, '@')
-            && ! str_contains($constraint, '||')
-            && ! str_contains($constraint, ' ');
+        $composer = json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+
+        return is_array($composer)
+            && isset($composer['require'])
+            && is_array($composer['require'])
+            && ($composer['require'][$package] ?? null) === '^'.$major;
     }
 
     private function installedClientMajor(): int
