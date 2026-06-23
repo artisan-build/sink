@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.1.2",
+            "version": "v0.1.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "fb5d9d3940cab977f0ab440789b98d82058fb2b0"
+                "reference": "24bdd73b169ccec962941e6e0b39e7d424850f39"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/fb5d9d3940cab977f0ab440789b98d82058fb2b0",
-                "reference": "fb5d9d3940cab977f0ab440789b98d82058fb2b0",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/24bdd73b169ccec962941e6e0b39e7d424850f39",
+                "reference": "24bdd73b169ccec962941e6e0b39e7d424850f39",
                 "shasum": ""
             },
             "require": {
@@ -62,9 +62,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.1.2"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.1.4"
             },
-            "time": "2026-06-23T05:14:15+00:00"
+            "time": "2026-06-23T11:34:39+00:00"
         },
         {
             "name": "artisan-build/sink-contracts",
