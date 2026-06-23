@@ -83,7 +83,10 @@ cloud command:run <env-id> --cmd="php artisan migrate --force" -n
 
 # 10. First admin + first source-app token.
 cloud command:run <env-id> --cmd="php artisan create-admin" -n
-cloud command:run <env-id> --cmd="php artisan token:create <source-app-id>" -n
+#    Run token:create locally on the operator machine, from the Sink app clone with .cloud/config.json bound.
+#    <label> is a human token label, such as the source app's name, not a deployed application id.
+php artisan token:create <label>
+#    The driver command stores only the hash in the deployed environment and prints the plaintext once.
 ```
 
 ## Environment variable checklist

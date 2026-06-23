@@ -64,5 +64,8 @@ and a successful deploy prove they are attached. Verify functionally:
   attached storage config and the app is deployed.
 - `SINK_DB_*` should track injected `DB_*` by default; only split them when a user explicitly wants a separate
   metadata database.
-- `FALLBACK_TOKEN` is a bootstrap convenience. For production hand-off, issue per-app tokens with
-  `php artisan token:create <app-id>` and use those for source apps and MCP.
+- `FALLBACK_TOKEN` is a bootstrap convenience. For production hand-off, issue per-app tokens from the operator's
+  machine with `php artisan token:create <label>` in the Sink app clone where `.cloud/config.json` is bound and
+  the `cloud` CLI is authenticated. `<label>` is a human token label, such as the source app's name, not a
+  deployed application id. The driver command stores only the hash in the deployed environment and prints the
+  plaintext once for source apps and MCP clients.

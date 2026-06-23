@@ -61,7 +61,7 @@ Follow [reference/resource-plan.md](reference/resource-plan.md) exactly. Capture
 app/default env -> Postgres cluster + `sink` schema -> Redis cache -> bucket attach (dashboard) -> web
 instance + scheduler -> managed queue -> attach DB/cache/bucket to env -> set `DB_*`, `SINK_*`, queue,
 storage, retention, MCP, and bootstrap env vars -> deploy -> migrate -> run `create-admin` -> issue first
-source-app token with `php artisan token:create <app-id>`.
+source-app token locally with `php artisan token:create <label>`.
 
 Use `FALLBACK_TOKEN` only as a bootstrap token. Prefer per-app tokens from `token:create` for source apps
 and MCP clients, then remove `FALLBACK_TOKEN` for production if the team no longer needs it.
@@ -91,8 +91,10 @@ Give the user exact copy-paste commands and wait for them to report completion b
 
 ## Step 6 - Hand off the source-app setup
 
-- Issue the first token: `cloud command:run <env> --cmd="php artisan token:create <app-id>" -n`. It prints
-  the plaintext token once and stores only its hash in `api_tokens`.
+- Issue the first token from the operator's machine, in the Sink app clone with `.cloud/config.json` bound and
+  an authenticated `cloud` CLI: `php artisan token:create <label>`. The label is a human-readable token label
+  such as the source app's name; it is not a deployed application id. This driver command generates the
+  plaintext locally, stores only the hash in the deployed environment for you, and prints the plaintext once.
 - In the source app: `composer require artisan-build/sink-client` then
   `php artisan sink:install --url=https://<env-url> --token=<plaintext-token>`. Set `MAIL_MAILER=sink` only
   in environments where mail should be captured.

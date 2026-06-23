@@ -7,13 +7,15 @@ description: "Configure a Laravel app to capture outbound mail in a self-hosted 
 
 `artisan-build/sink-client` registers a Laravel mail transport named `sink` so **this app's** outbound mail is
 captured by your self-hosted Sink server instead of being delivered. This is per-app: you need the Sink **base
-URL** and a **token** for this app (issued on the Sink server with `php artisan token:create <app-id>`).
+URL** and a **token** for this app. The Sink operator issues it from their local Sink app clone with
+`php artisan token:create <label>`, where `<label>` is a human token label such as this source app's name.
 
 ## Prerequisites
 
 - PHP **^8.3**; Laravel **11, 12, or 13** (`sink-client` supports `illuminate ^11|^12|^13`).
 - The Sink URL, for example `https://<your-sink>`.
-- The plaintext token the Sink server printed for this app. It is shown once; the server stores only a hash.
+- The plaintext token the Sink operator handed you. It is shown once by the local driver command; the deployed
+  Sink environment stores only a hash.
 
 ## Steps
 
@@ -69,8 +71,9 @@ server-supported range. Rule: upgrade the **Sink server first**, then bump clien
   mailer.
 - **Production fuse:** if `APP_ENV=production`, set `SINK_ALLOW_PRODUCTION=true` intentionally or use a
   non-production environment for captured mail.
-- **Server returns 401:** this app's token does not resolve on the Sink server. Re-issue it with
-  `php artisan token:create <app-id>` on the Sink server, then update `SINK_TOKEN` here.
+- **Server returns 401:** this app's token does not resolve in Sink. Ask the Sink operator to re-issue it from
+  their local Sink app clone with `php artisan token:create <label>`, then update `SINK_TOKEN` here with the
+  plaintext token they hand back.
 - **Server rejects compatibility:** run `php artisan sink:update`. If the client envelope is ahead of the server,
   upgrade the Sink server first.
 - **No message in the inbox:** confirm the code actually sent mail after `MAIL_MAILER=sink` was loaded, check the
