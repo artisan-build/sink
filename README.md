@@ -2,6 +2,8 @@
 
 **Self-hosted, unmetered staging/test mail capture for Laravel, on Laravel Cloud.**
 
+> **Don't want to run it?** Sink is MIT — fork and own it. Or [have Artisan Build run it](https://artisan.build/start?ref=gh-sink-top) in your Cloud account and keep it updated.
+
 Sink is a mail trap you fork and deploy to your own Laravel Cloud account. Drop the
 client into any Laravel app, set `MAIL_MAILER=sink`, and every outbound message is
 captured to a self-hosted inbox instead of being delivered. Humans can inspect the
@@ -169,6 +171,18 @@ Required production environment:
 
 Do not enable a Cloud-managed mail integration for the Sink app. Sink is the inbox.
 
+## Prefer not to operate it?
+
+Running Sink yourself means an isolated environment per client — Postgres, Redis, object
+storage, a managed queue, the scheduler running `sink:maintain`, admin invitations,
+retention caps, and server-first upgrades. It's all documented because fork-and-own is a
+first-class path.
+
+If you'd rather just have a persistent, shared staging inbox that's always there,
+**[Artisan Build will run Sink in your own Laravel Cloud
+account](https://artisan.build/start?ref=gh-sink-deploy)** — your data, your bucket,
+capture-only — and keep it current. A team mail trap without the operational tail.
+
 ## Adding a source app
 
 On the Sink server, issue a source application token locally with the
@@ -266,6 +280,12 @@ understands, `/ingest` returns a 4xx upgrade message instead of accepting it.
 - **No deliverability or spam scoring.** That is Mailtrap's domain.
 
 ---
+
+## Managed by Artisan Build
+
+Sink is built and maintained by [Artisan Build](https://artisan.build). Fork it and own it,
+or [have us deploy and maintain it](https://artisan.build/start?ref=gh-sink-footer) in your
+Cloud account.
 
 ## License
 
