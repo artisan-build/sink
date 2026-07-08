@@ -147,14 +147,15 @@ test('non admins and guests cannot visit the invitations page', function (): voi
 
 test('create admin command creates an admin user', function (): void {
     $exitCode = Artisan::call('create-admin', [
-        '--email' => 'admin@test',
+        '--email' => 'admin@test.com',
         '--password' => 'secret-pass',
         '--name' => 'Admin',
+        '--local' => true,
     ]);
 
     expect($exitCode)->toBe(0);
 
-    $admin = User::query()->where('email', 'admin@test')->firstOrFail();
+    $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
 
     expect($admin->is_admin)->toBeTrue();
 });
