@@ -36,7 +36,7 @@ class AcceptInvitation extends Component
 
         $invitation = Invitation::query()
             ->pending()
-            ->where('token', $token)
+            ->where('token', hash('sha256', $token))
             ->first();
 
         if (! $invitation instanceof Invitation) {
