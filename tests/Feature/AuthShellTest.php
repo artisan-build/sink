@@ -41,13 +41,16 @@ test('open registration is disabled and does not create a user', function (): vo
 
 test('an invited user can accept an invitation and is logged in as a non admin', function (): void {
     $invitation = Invitation::invite('invitee@test');
+    $plainTextToken = $invitation->token;
 
-    $this->get(route('register.invitation', $invitation->token))
+    expect(Invitation::query()->whereKey($invitation->getKey())->value('token'))->not->toBe($plainTextToken);
+
+    $this->get(route('register.invitation', $plainTextToken))
         ->assertOk()
         ->assertSee('Accept your invitation')
         ->assertSee('invitee@test');
 
-    Livewire::test(AcceptInvitation::class, ['token' => $invitation->token])
+    Livewire::test(AcceptInvitation::class, ['token' => $plainTextToken])
         ->set('name', 'Invited User')
         ->set('password', 'secret-pass')
         ->set('password_confirmation', 'secret-pass')
