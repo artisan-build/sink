@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkClient;
 
+use ArtisanBuild\BfcClient\ClientIdentity;
 use ArtisanBuild\SinkClient\Commands\InstallCommand;
 use ArtisanBuild\SinkClient\Commands\UpdateCommand;
 use ArtisanBuild\SinkClient\Exceptions\SinkNotConfigured;
@@ -50,6 +51,7 @@ final class SinkClientServiceProvider extends ServiceProvider
                 timeout: max(0.1, (float) config('sink-client.timeout')),
                 maxMessageBytes: max(0, (int) config('sink-client.max_message_bytes')),
                 http: $this->app->make(Factory::class),
+                identity: $this->app->make(ClientIdentity::class),
             );
         });
     }

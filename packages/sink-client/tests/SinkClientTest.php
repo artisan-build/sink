@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BfcClient\BfcHeaders;
+use ArtisanBuild\BfcClient\ClientIdentity;
 use ArtisanBuild\SinkClient\Exceptions\SinkNotConfigured;
 use ArtisanBuild\SinkClient\Exceptions\SinkProductionFuse;
 use ArtisanBuild\SinkClient\SinkClient;
@@ -227,4 +229,32 @@ it('reports compatible and incompatible server capability ranges', function (): 
     Artisan::call('sink:update', outputBuffer: $incompatibleOutput);
 
     expect($incompatibleOutput->fetch())->toContain('expects envelope v'.(Envelope::VERSION + 1));
+});
+
+it('attaches the stable BfC client identity to the ingest request alongside the token', function (): void {
+    config(['bfc-client.identity' => 'client-identity-under-test']);
+    selectSinkMailer();
+    Http::fake(['https://sink.test/ingest' => Http::response(status: 202)]);
+
+    sendSinkRaw();
+
+    Http::assertSentCount(1);
+    Http::assertSent(function (Request $request): bool {
+        expect($request->url())->toBe('https://sink.test/ingest')
+            ->and($request->header(BfcHeaders::CLIENT_ID))->toBe(['client-identity-under-test'])
+            ->and($request->header('Authorization'))->toBe(['Bearer secret']);
+
+        return true;
+    });
+});
+
+it('resolves the identity through bfc-client rather than hard-coding it', function (): void {
+    config(['bfc-client.identity' => null]);
+    selectSinkMailer();
+    Http::fake(['https://sink.test/ingest' => Http::response(status: 202)]);
+
+    sendSinkRaw();
+
+    Http::assertSent(fn (Request $request): bool => $request->header(BfcHeaders::CLIENT_ID)
+        === [app(ClientIdentity::class)->validated()]);
 });
