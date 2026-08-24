@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkClient;
 
+use ArtisanBuild\BfcClient\BfcHeaders;
+use ArtisanBuild\BfcClient\ClientIdentity;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
 use Illuminate\Http\Client\Factory;
@@ -26,6 +28,7 @@ final class SinkTransport extends AbstractTransport
         private readonly float $timeout,
         private readonly int $maxMessageBytes,
         private readonly Factory $http,
+        private readonly ClientIdentity $identity,
     ) {
         parent::__construct();
     }
@@ -50,6 +53,7 @@ final class SinkTransport extends AbstractTransport
 
         $this->http
             ->withToken($this->token)
+            ->withHeaders([BfcHeaders::CLIENT_ID => $this->identity->validated()])
             ->timeout($this->timeout)
             ->retry($this->retryAttempts, fn (int $attempt): int => $this->retryDelay($attempt), throw: true)
             ->post($this->ingestUrl(), $envelope)
