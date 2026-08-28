@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
@@ -12,6 +14,7 @@ use Illuminate\Testing\TestResponse;
 
 beforeEach(function (): void {
     Storage::fake((string) config('sink-server.disk'));
+    ApiToken::factory()->create(['name' => 'mcp', 'token_hash' => hash('sha256', 'mcp-token')]);
 });
 
 it('fails closed for unauthenticated MCP HTTP requests and initializes with a valid token', function (): void {
@@ -20,9 +23,46 @@ it('fails closed for unauthenticated MCP HTTP requests and initializes with a va
     $this->postJson((string) config('sink-server.mcp.path'), $initialize)->assertUnauthorized();
     $this->postJson((string) config('sink-server.mcp.path'), $initialize, ['Authorization' => 'Bearer wrong'])->assertUnauthorized();
 
-    $this->postJson((string) config('sink-server.mcp.path'), $initialize, ['Authorization' => 'Bearer test-token'])
+    $this->postJson((string) config('sink-server.mcp.path'), $initialize, ['Authorization' => 'Bearer mcp-token'])
         ->assertOk()
         ->assertJsonPath('result.serverInfo.name', 'Sink');
+});
+
+it('denies the fallback token for MCP requests including the purge tool', function (): void {
+    seedMcpMessages();
+
+    $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), ['Authorization' => 'Bearer test-token'])
+        ->assertUnauthorized();
+
+    purgeToolResponseWithToken('test-token')->assertUnauthorized();
+    $this->assertDatabaseCount('messages', 3, 'sink');
+});
+
+it('denies an expired token for MCP requests including the purge tool', function (): void {
+    seedMcpMessages();
+    ApiToken::factory()->create([
+        'name' => 'expired',
+        'token_hash' => hash('sha256', 'expired-token'),
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), ['Authorization' => 'Bearer expired-token'])
+        ->assertUnauthorized();
+
+    purgeToolResponseWithToken('expired-token')->assertUnauthorized();
+    $this->assertDatabaseCount('messages', 3, 'sink');
+});
+
+it('denies a revoked token for MCP requests including the purge tool', function (): void {
+    seedMcpMessages();
+    ApiToken::factory()->create(['name' => 'doomed', 'token_hash' => hash('sha256', 'doomed-token')]);
+    app(TokenRegistry::class)->revoke('doomed');
+
+    $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), ['Authorization' => 'Bearer doomed-token'])
+        ->assertUnauthorized();
+
+    purgeToolResponseWithToken('doomed-token')->assertUnauthorized();
+    $this->assertDatabaseCount('messages', 3, 'sink');
 });
 
 it('counts messages and asserts expected counts across filters', function (): void {
@@ -212,7 +252,20 @@ function mcpToolResponse(string $name, array $arguments = []): TestResponse
             'name' => $name,
             'arguments' => $arguments,
         ],
-    ], ['Authorization' => 'Bearer test-token']);
+    ], ['Authorization' => 'Bearer mcp-token']);
+}
+
+function purgeToolResponseWithToken(string $plaintext): TestResponse
+{
+    return test()->postJson((string) config('sink-server.mcp.path'), [
+        'jsonrpc' => '2.0',
+        'id' => 'purge-denied',
+        'method' => 'tools/call',
+        'params' => [
+            'name' => 'purge',
+            'arguments' => ['app' => 'alpha'],
+        ],
+    ], ['Authorization' => 'Bearer '.$plaintext]);
 }
 
 function mcpToolContent(TestResponse $response): array
