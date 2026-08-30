@@ -13,6 +13,8 @@ use Livewire\Component;
 #[Title('Invitations')]
 class Invitations extends Component
 {
+    private const int INVITATION_TTL_SECONDS = 604800;
+
     public string $email = '';
 
     public ?string $invitationLink = null;
@@ -23,7 +25,11 @@ class Invitations extends Component
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255'],
         ]);
 
-        $invitation = Invitation::invite($validated['email'], invitedBy: (string) Auth::id());
+        $invitation = Invitation::invite(
+            $validated['email'],
+            self::INVITATION_TTL_SECONDS,
+            invitedBy: (string) Auth::id(),
+        );
 
         $this->reset('email');
         $this->invitationLink = route('register.invitation', $invitation->token);
