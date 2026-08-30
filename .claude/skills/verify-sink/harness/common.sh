@@ -14,6 +14,17 @@ die() { printf '\033[31mFAIL\033[0m  %s\n' "$*" >&2; exit 1; }
 ok() { printf '\033[32mok\033[0m    %s\n' "$*"; }
 note() { printf '      %s\n' "$*"; }
 
+git_tree_is_exact_commit() {
+	local directory="${1:-$APP_DIR}" status
+	status="$(git -C "$directory" status --porcelain=v1 --untracked-files=normal --ignore-submodules=none)" || return 1
+	[ -z "$status" ]
+}
+
+assert_exact_committed_tree() {
+	local directory="${1:-$APP_DIR}"
+	git_tree_is_exact_commit "$directory" || die "Application worktree has tracked modifications or untracked files; refusing to verify uncommitted contents."
+}
+
 current_run_dir() {
 	[ -f "$CURRENT_RUN_FILE" ] || return 1
 	local id

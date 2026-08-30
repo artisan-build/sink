@@ -55,6 +55,8 @@ fi
 
 head_sha="$(git -C "$APP_DIR" rev-parse HEAD)"
 if [ "$head_sha" = "$GIT_SHA" ]; then ok "serving launch SHA $GIT_SHA"; else check_fail "launch SHA $GIT_SHA differs from checkout $head_sha"; fi
+if [ "${WORKTREE_PROVENANCE:-}" = "exact-commit-v1" ]; then ok "run metadata requires exact committed-tree provenance"; else check_fail "run metadata does not require exact committed-tree provenance"; fi
+if git_tree_is_exact_commit "$APP_DIR"; then ok "serving worktree remains free of tracked modifications and untracked files"; else check_fail "serving worktree has tracked modifications or untracked files"; fi
 
 database_identity="$(php_run -r '
 require getenv("APP_DIR_FOR_VERIFY")."/vendor/autoload.php";

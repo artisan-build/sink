@@ -31,7 +31,7 @@ change those safe overrides to match a production credential during ordinary ver
 ├── browsers/                     isolated Chromium binaries
 ├── current-run                   current run id
 └── runs/<run-id>/
-    ├── run.env                   non-secret run identity, port, PIDs, SHA, database, PostgreSQL host/port/user, and credential reference
+    ├── run.env                   non-secret run identity, port, PIDs, SHA, exact-tree provenance, database, PostgreSQL host/port/user, and credential reference
     ├── launched.env              exported variable names only, never values
     ├── server.log                 request log with invitation routes redacted before disk
     ├── worker.log
@@ -101,7 +101,7 @@ Doctor checks all of the following and exits non-zero if any check fails:
 1. The recorded server and database queue-worker PIDs are alive.
 2. `/up` answers 200.
 3. Every process listening on the recorded port descends from the recorded server PID.
-4. The checkout is still at the launch SHA.
+4. The checkout is still at the launch SHA and remains free of tracked modifications and standard untracked files.
 5. PostgreSQL reports the recorded database for both the default and named `sink` connections.
 6. A real anonymous `/login` request increases the session-row count in this run's database. This is
    the behavioral proof that the serving process received the run environment.

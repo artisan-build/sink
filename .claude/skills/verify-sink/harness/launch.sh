@@ -3,6 +3,8 @@
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
+assert_exact_committed_tree
+
 if existing="$(current_run_dir 2>/dev/null)"; then
 	# shellcheck disable=SC1090
 	. "$existing/run.env"
@@ -53,6 +55,7 @@ ok "created PostgreSQL database $DB_NAME"
 	printf 'BASE_URL=%q\n' "$BASE_URL"
 	printf 'DB_NAME=%q\n' "$DB_NAME"
 	printf 'GIT_SHA=%q\n' "$(git -C "$APP_DIR" rev-parse HEAD)"
+	printf 'WORKTREE_PROVENANCE=%q\n' "exact-commit-v1"
 	printf 'EVIDENCE_DIR=%q\n' "$EVIDENCE_DIR"
 	printf 'PGHOST_=%q\n' "$PGHOST_"
 	printf 'PGPORT_=%q\n' "$PGPORT_"
