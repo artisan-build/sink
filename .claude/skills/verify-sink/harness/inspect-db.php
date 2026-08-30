@@ -5,8 +5,10 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\Invitation;
 use ArtisanBuild\SinkServer\Models\Message;
+use App\Models\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 $options = [];
 foreach (array_slice($argv, 1) as $argument) {
@@ -52,6 +54,17 @@ if (isset($options['invitation-prefix'])) {
         'expires_at' => $invitation->expires_at?->toIso8601String(),
     ])->all();
     $result['count'] = $invitations->count();
+} elseif (isset($options['user-email'])) {
+    $email = (string) $options['user-email'];
+    $users = User::query()->where('email', $email)->orderBy('id')->get();
+    $result['users'] = $users->map(fn (User $user): array => [
+        'id' => $user->getKey(),
+        'name' => $user->name,
+        'email' => $user->email,
+        'is_admin' => $user->is_admin,
+        'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+    ])->all();
+    $result['count'] = $users->count();
 } elseif (isset($options['message-subject'])) {
     $subject = (string) $options['message-subject'];
     $messages = Message::query()
@@ -68,6 +81,7 @@ if (isset($options['invitation-prefix'])) {
         'attachment_count' => $message->attachment_count,
         'link_count' => $message->link_count,
         'raw_object_key' => $message->raw_object_key,
+        'raw_object_exists' => Storage::disk((string) config('sink-server.disk'))->exists($message->raw_object_key),
     ])->all();
     $result['count'] = $messages->count();
 } else {

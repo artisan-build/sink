@@ -14,6 +14,7 @@ if existing="$(current_run_dir 2>/dev/null)"; then
 fi
 
 [ -f "$APP_DIR/vendor/autoload.php" ] || die "Dependencies are missing. Run composer install."
+configure_launch_connection
 
 RUN_ID="$(date -u +%Y%m%dt%H%M%Sz)_$$"
 RUN_DIR="$RUNS_DIR/$RUN_ID"
@@ -46,16 +47,19 @@ try {
 ' "$PGHOST_" "$PGPORT_" "$PGUSER_" "$PGPASS_" "$DB_NAME" || die "Could not create $DB_NAME."
 ok "created PostgreSQL database $DB_NAME"
 
-cat > "$RUN_DIR/run.env" <<ENV
-RUN_ID=$RUN_ID
-PORT=$PORT
-BASE_URL=$BASE_URL
-DB_NAME=$DB_NAME
-GIT_SHA=$(git -C "$APP_DIR" rev-parse HEAD)
-EVIDENCE_DIR=$EVIDENCE_DIR
-SERVER_PID=
-WORKER_PID=
-ENV
+{
+	printf 'RUN_ID=%q\n' "$RUN_ID"
+	printf 'PORT=%q\n' "$PORT"
+	printf 'BASE_URL=%q\n' "$BASE_URL"
+	printf 'DB_NAME=%q\n' "$DB_NAME"
+	printf 'GIT_SHA=%q\n' "$(git -C "$APP_DIR" rev-parse HEAD)"
+	printf 'EVIDENCE_DIR=%q\n' "$EVIDENCE_DIR"
+	printf 'PGHOST_=%q\n' "$PGHOST_"
+	printf 'PGPORT_=%q\n' "$PGPORT_"
+	printf 'PGUSER_=%q\n' "$PGUSER_"
+	printf 'PGPASSWORD_SOURCE=%q\n' "$PGPASSWORD_SOURCE"
+	printf 'SERVER_PID=\nWORKER_PID=\n'
+} > "$RUN_DIR/run.env"
 printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
 
 successful=0

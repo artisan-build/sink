@@ -3,11 +3,11 @@
 
 . "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
-dir="$(current_run_dir 2>/dev/null)" || { note "No run on record; nothing to clean up."; exit 0; }
-# shellcheck disable=SC1090
-. "$dir/run.env"
+current_run_dir >/dev/null 2>&1 || { note "No run on record; nothing to clean up."; exit 0; }
+load_run_metadata
 mkdir -p "$EVIDENCE_DIR"
 exec > >(tee -a "$EVIDENCE_DIR/cleanup.log") 2>&1
+bind_run_connection
 
 failures=0
 
@@ -20,7 +20,7 @@ descendants() {
 }
 
 kill_tree() {
-	local pid="$1" label="$2" victims victim
+	local pid="$1" label="$2" victims victim survived=0
 	[ -n "$pid" ] || return 0
 	victims="$(descendants "$pid") $pid"
 	printf '%s %s\n' "$label" "$victims" >> "$EVIDENCE_DIR/cleanup-pids.txt"
@@ -37,9 +37,12 @@ kill_tree() {
 		if kill -0 "$victim" 2>/dev/null; then
 			printf '\033[31mFAIL\033[0m  %s pid %s survived cleanup\n' "$label" "$victim"
 			failures=$((failures + 1))
+			survived=$((survived + 1))
 		fi
 	done
-	ok "stopped recorded $label tree (${victims//$'\n'/, })"
+	if [ "$survived" -eq 0 ]; then
+		ok "stopped recorded $label tree (${victims//$'\n'/, })"
+	fi
 }
 
 : > "$EVIDENCE_DIR/cleanup-pids.txt"
@@ -78,9 +81,10 @@ else
 	failures=$((failures + 1))
 fi
 
-if [ -f "$CURRENT_RUN_FILE" ] && [ "$(<"$CURRENT_RUN_FILE")" = "$RUN_ID" ]; then rm -f "$CURRENT_RUN_FILE"; fi
-
-ok "evidence kept at $EVIDENCE_DIR"
+note "evidence kept at $EVIDENCE_DIR"
 printf '      %s\n' "$EVIDENCE_DIR"/* 2>/dev/null || true
 
-if [ "$failures" -ne 0 ]; then die "$failures cleanup check(s) failed."; fi
+if [ "$failures" -ne 0 ]; then die "$failures cleanup check(s) failed; current-run was retained for retry."; fi
+
+if [ -f "$CURRENT_RUN_FILE" ] && [ "$(<"$CURRENT_RUN_FILE")" = "$RUN_ID" ]; then rm -f "$CURRENT_RUN_FILE"; fi
+ok "cleanup complete; current-run record removed"

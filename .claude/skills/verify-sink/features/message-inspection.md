@@ -21,25 +21,73 @@
 
 ## Driving it with Playwright
 
-Preconditions: baseline 1-6. Create `Verification message` with `harness/send-message.sh` and seed a
-login actor.
+Preconditions: baseline 1-6. Create `Verification message` with
+`.claude/skills/verify-sink/harness/send-message.sh` and seed a login actor.
 
 Status: **recipe, not yet driven**.
 
-- **Inspect a basic real-ingest message** - login, `goto` `/inbox`, click the link
-  `Verification message`, expect headings `Recipients`, `Body`, `Headers`, `Links`, and `Attachments`,
-  expect text `recipient@verify.test`, and expect text `https://example.test/verify`.
-- **Prove body isolation and content** - `expectAttribute` on
-  `iframe[title="Sandboxed message body"]` with attribute `sandbox` equal to an empty string, then
-  `expectFrameText` containing `Captured by the isolated Sink verifier.`. Observable result: the body
-  is visible inside the sandbox but the outer page exposes only metadata.
-- **Prove raw entry point** - expect `a[href*="/raw"]` to be visible and have a path under the current
-  message. Open it in a separate Playwright page and expect the MIME headers and body source.
-- **Prove database and storage side effects** - save
-  `harness/inspect-db.sh --message-subject='Verification message'`; its message has a non-null
-  `parsed_at`, recipient, one link, and a `raw_object_key` under this run's storage directory.
-- **Layout** - screenshot before and after opening the detail, `measure` the body iframe, and run
-  `overflow` at both required viewports.
+- **Inspect a basic real-ingest message, its sandboxed body, and the Back to inbox entry point** - run
+  this exact recipe at both required viewports:
+  ```json
+  [
+    {"login":{"email":"user@verify.test","password":"verify-password"}},
+    {"goto":"/inbox"},
+    {"shot":"before-detail"},
+    {"clickRole":{"role":"link","name":"Verification message"}},
+    {"expectRole":{"role":"heading","name":"Verification message"}},
+    {"expectRole":{"role":"heading","name":"Recipients"}},
+    {"expectRole":{"role":"heading","name":"Body"}},
+    {"expectRole":{"role":"heading","name":"Headers"}},
+    {"expectRole":{"role":"heading","name":"Links"}},
+    {"expectRole":{"role":"heading","name":"Attachments"}},
+    {"expectText":{"selector":"body","contains":"recipient@verify.test"}},
+    {"expectText":{"selector":"body","contains":"https://example.test/verify"}},
+    {"expectAttribute":{"selector":"iframe[title='Sandboxed message body']","name":"sandbox","equals":""}},
+    {"expectFrameText":{"selector":"iframe[title='Sandboxed message body']","contains":"Captured by the isolated Sink verifier."}},
+    {"measure":{"selector":"iframe[title='Sandboxed message body']","name":"message-body"}},
+    {"overflow":false},
+    {"shot":"message-detail"},
+    {"clickRole":{"role":"link","name":"Back to inbox"}},
+    {"expectUrl":{"contains":"/inbox"}},
+    {"expectRole":{"role":"heading","name":"Inbox"}}
+  ]
+  ```
+- **Open raw source in its real new-tab entry point** - `clickNewPage` waits for the popup and switches
+  the active page before assertions:
+  ```json
+  [
+    {"login":{"email":"user@verify.test","password":"verify-password"}},
+    {"goto":"/inbox"},
+    {"clickRole":{"role":"link","name":"Verification message"}},
+    {"expect":{"selector":"a[href*='/raw']"}},
+    {"clickNewPage":{"role":"link","name":"View raw source"}},
+    {"expectUrl":{"contains":"/raw"}},
+    {"expectText":{"selector":"body","contains":"Subject: Verification message"}},
+    {"expectText":{"selector":"body","contains":"Captured by the isolated Sink verifier."}}
+  ]
+  ```
+- **Prove database and storage side effects** - save this exact command's JSON under `evidence/`:
+  ```bash
+  .claude/skills/verify-sink/harness/inspect-db.sh --message-subject='Verification message'
+  ```
+  The matching row must have non-null `parsed_at`, the expected recipient, `link_count` one, a
+  `raw_object_key`, and `raw_object_exists` true.
+- **Delete message as an admin** - run at one viewport because the operation destroys the fixture:
+  ```json
+  [
+    {"login":{"email":"admin@verify.test","password":"verify-password"}},
+    {"goto":"/inbox"},
+    {"clickRole":{"role":"link","name":"Verification message"}},
+    {"acceptDialog":true},
+    {"clickRole":{"role":"button","name":"Delete message"}},
+    {"expectUrl":{"contains":"/inbox"}},
+    {"expectText":{"selector":"body","contains":"Message deleted."}}
+  ]
+  ```
+  Then run the database command above and require `count` zero.
+- **Download attachment** - the documented `send-message.sh` fixture contains no attachment and the
+  harness has no attachment-fixture option. Report this entry point `verifier-blocked` rather than
+  inventing an undocumented MIME setup or claiming the visible control proves download behavior.
 
 ## Gotchas
 

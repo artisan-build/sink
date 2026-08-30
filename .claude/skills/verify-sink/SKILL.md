@@ -31,7 +31,7 @@ change those safe overrides to match a production credential during ordinary ver
 ├── browsers/                     isolated Chromium binaries
 ├── current-run                   current run id
 └── runs/<run-id>/
-    ├── run.env                   non-secret run identity, port, PIDs, SHA, database
+    ├── run.env                   non-secret run identity, port, PIDs, SHA, database, PostgreSQL host/port/user, and credential reference
     ├── launched.env              exported variable names only, never values
     ├── server.log
     ├── worker.log
@@ -71,6 +71,24 @@ VERIFY_PGHOST=127.0.0.1 VERIFY_PGPORT=5432 \
 VERIFY_PGUSER=postgres VERIFY_PGPASSWORD=postgres \
   .claude/skills/verify-sink/harness/launch.sh
 ```
+
+`run.env` records the chosen PostgreSQL host, port, and user plus the name
+`VERIFY_PGPASSWORD` when that variable supplied the password. It never records the password. Keep the
+credential exported for later commands in the same shell, or securely re-supply it in a new shell:
+
+```bash
+read -r -s -p 'PostgreSQL password: ' VERIFY_PGPASSWORD; printf '\n'
+export VERIFY_PGPASSWORD
+.claude/skills/verify-sink/harness/doctor.sh
+.claude/skills/verify-sink/harness/seed-actor.sh --email=admin@verify.test --password=verify-password --name="Verify Admin" --admin
+.claude/skills/verify-sink/harness/cleanup.sh
+unset VERIFY_PGPASSWORD
+```
+
+Doctor, every helper, and Cleanup load the recorded host/port/user rather than re-deriving defaults.
+They reject conflicting `VERIFY_PGHOST`, `VERIFY_PGPORT`, or `VERIFY_PGUSER` values. A run launched
+with `VERIFY_PGPASSWORD` fails closed before connecting when that variable is absent, and Cleanup keeps
+`current-run` so the command can be retried after the credential is re-supplied.
 
 ## Doctor
 
@@ -132,12 +150,23 @@ PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/sink-verify/browsers" \
   --viewport=1280x800 --viewport=390x844
 ```
 
-Supported verbs are `goto`, `login`, `fill`, `fillLabel`, `click`, `clickRole`, `acceptDialog`,
-`expect`, `expectRole`, `expectMissing`, `expectText`, `expectUrl`, `expectStatus`, `expectValue`,
-`expectAttribute`, `expectFrameText`, `measure`, `overflow`, `shot`, and `wait`. Strings may contain
-`{{viewport}}`; the driver replaces it with the active viewport so a two-viewport write can use unique
-emails. Every step and browser console error is appended to `evidence/transcript.jsonl`; a failed
-expectation captures a screenshot and exits non-zero.
+Supported verbs are `goto`, `login`, `fill`, `fillLabel`, `click`, `clickRole`, `clickNewPage`,
+`captureValue`, `newContext`, `acceptDialog`, `expect`, `expectRole`, `expectMissing`, `expectText`,
+`expectUrl`, `expectStatus`, `expectValue`, `expectAttribute`, `expectChecked`, `expectFrameText`,
+`measure`, `overflow`, `shot`, and `wait`. `captureValue` stores an input value or named attribute as a
+secret variable; later strings can reference it as `{{name}}`. `newContext` discards cookies and opens
+a fresh isolated context. `clickNewPage` clicks a selector or accessible role and switches to the page
+opened by that action. `expectValue` accepts either `selector` or an exact accessible `label` plus
+`equals` or `contains`. Strings may contain `{{viewport}}`; the driver replaces it with the active
+viewport so a two-viewport write can use unique emails.
+
+Every screenshot, including automatic failure screenshots, passes through the same default-deny
+redaction boundary. It masks password controls, every password supplied by a recipe, captured secret
+values, `/register/{token}` URLs, and standalone 40-character invitation tokens before pixels are
+written. Transcript, console, HTTP-error, and terminal records redact the same known values and
+invitation patterns. Recipes must use `captureValue`; they must never copy a token into a step file.
+Every step and browser console error is appended to `evidence/transcript.jsonl`; a failed expectation
+captures a redacted screenshot and exits non-zero.
 
 Prefer observed accessible labels and control names such as `Email address`, `Create invitation`,
 `Inbox`, and `Subject contains`. Sink currently has few `data-test` handles; use the observed route or label rather
@@ -166,6 +195,8 @@ RUN="$HOME/.cache/sink-verify/runs/$(cat "$HOME/.cache/sink-verify/current-run")
   | tee "$RUN/evidence/invitations-db.json"
 .claude/skills/verify-sink/harness/inspect-db.sh --message-subject='Verification message' \
   | tee "$RUN/evidence/message-db.json"
+.claude/skills/verify-sink/harness/inspect-db.sh --user-email='user@verify.test' \
+  | tee "$RUN/evidence/user-db.json"
 ```
 
 The harness is closer to production than `phpunit.xml`: it uses PostgreSQL, database sessions,

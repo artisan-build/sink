@@ -17,12 +17,12 @@ Anything else is a recipe, not proof.
 
 ## Baseline preconditions
 
-1. `harness/install-browser.sh` has installed Playwright outside the repository.
-2. `harness/launch.sh` ended with `instance is worth driving`.
+1. `.claude/skills/verify-sink/harness/install-browser.sh` has installed Playwright outside the repository.
+2. `.claude/skills/verify-sink/harness/launch.sh` ended with `instance is worth driving`.
 3. `BASE_URL` is `http://127.0.0.1:<run-port>`, never a Herd `.test` hostname.
 4. The default and named `sink` connections both identify this run's PostgreSQL database.
-5. `harness/seed-actor.sh` has created the actor a recipe names, unless account creation is the feature.
-6. `harness/send-message.sh` has created a captured message when the feature needs inbox state.
+5. `.claude/skills/verify-sink/harness/seed-actor.sh` has created the actor a recipe names, unless account creation is the feature.
+6. `.claude/skills/verify-sink/harness/send-message.sh` has created a captured message when the feature needs inbox state.
 
 ## Driving conventions
 
@@ -34,7 +34,7 @@ Anything else is a recipe, not proof.
   database-backed limiter state; repeated drives may otherwise receive 429.
 - `wire:model.live` filters need a short `wait` before asserting the changed table.
 - A seeded actor or helper-ingested message is precondition state, not proof of a UI feature.
-- Read side effects from PostgreSQL with `harness/inspect-db.sh` and keep the JSON under `evidence/`.
+- Read side effects from PostgreSQL with `.claude/skills/verify-sink/harness/inspect-db.sh` and keep the JSON under `evidence/`.
 - The run uses local disk and database queue, not production object storage and managed queue. Name
   that caveat in every result that depends on message parsing or blobs.
 
