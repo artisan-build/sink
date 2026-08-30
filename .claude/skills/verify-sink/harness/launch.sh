@@ -87,7 +87,7 @@ export PHP_CLI_SERVER_WORKERS="${VERIFY_SERVER_WORKERS:-4}"
 
 cd "$APP_DIR/public" || die "Cannot enter public directory $APP_DIR/public."
 mkfifo "$RUN_DIR/server-log.pipe"
-perl -pe 'BEGIN { $| = 1 } s{(/register/)[A-Za-z0-9]{40}}{${1}[REDACTED]}g' < "$RUN_DIR/server-log.pipe" > "$RUN_DIR/server.log" &
+perl -pe 'BEGIN { $| = 1 } s{(/register/)[A-Za-z0-9]{40}}{${1}[REDACTED]}g' < "$RUN_DIR/server-log.pipe" > "$RUN_DIR/server.log" 2>&1 &
 SERVER_LOG_PID=$!
 php -d variables_order=EGPCS -S "127.0.0.1:$PORT" "$ROUTER" > "$RUN_DIR/server-log.pipe" 2>&1 &
 SERVER_PID=$!
