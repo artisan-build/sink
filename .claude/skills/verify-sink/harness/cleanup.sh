@@ -48,6 +48,7 @@ kill_tree() {
 : > "$EVIDENCE_DIR/cleanup-pids.txt"
 kill_tree "${WORKER_PID:-}" "queue-worker"
 kill_tree "${SERVER_PID:-}" "server"
+kill_tree "${SERVER_LOG_PID:-}" "server-log-redactor"
 
 if [ -n "${PORT:-}" ] && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
 	printf '\033[31mFAIL\033[0m  port %s still has listener pids: %s\n' "$PORT" "$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"

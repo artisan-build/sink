@@ -33,7 +33,7 @@ change those safe overrides to match a production credential during ordinary ver
 └── runs/<run-id>/
     ├── run.env                   non-secret run identity, port, PIDs, SHA, database, PostgreSQL host/port/user, and credential reference
     ├── launched.env              exported variable names only, never values
-    ├── server.log
+    ├── server.log                 request log with invitation routes redacted before disk
     ├── worker.log
     ├── migrate.log
     ├── storage/                  this run's local object storage and framework state
@@ -164,7 +164,9 @@ Every screenshot, including automatic failure screenshots, passes through the sa
 redaction boundary. It masks password controls, every password supplied by a recipe, captured secret
 values, `/register/{token}` URLs, and standalone 40-character invitation tokens before pixels are
 written. Transcript, console, HTTP-error, and terminal records redact the same known values and
-invitation patterns. Recipes must use `captureValue`; they must never copy a token into a step file.
+invitation patterns. The PHP server writes through a recorded redactor process so invitation routes
+are also masked before `server.log` reaches disk. Recipes must use `captureValue`; they must never copy
+a token into a step file.
 Every step and browser console error is appended to `evidence/transcript.jsonl`; a failed expectation
 captures a redacted screenshot and exits non-zero.
 

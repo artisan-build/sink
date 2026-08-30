@@ -36,6 +36,7 @@ try {
 printf 'run %s -> %s\n\n' "$RUN_ID" "$RUN_DIR"
 
 if kill -0 "$SERVER_PID" 2>/dev/null; then ok "server pid $SERVER_PID alive"; else check_fail "server pid $SERVER_PID is gone"; fi
+if kill -0 "$SERVER_LOG_PID" 2>/dev/null; then ok "redacting server-log pid $SERVER_LOG_PID alive"; else check_fail "redacting server-log pid $SERVER_LOG_PID is gone"; fi
 if kill -0 "$WORKER_PID" 2>/dev/null; then ok "database queue worker pid $WORKER_PID alive"; else check_fail "queue worker pid $WORKER_PID is gone"; fi
 
 code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/up" 2>/dev/null || true)"

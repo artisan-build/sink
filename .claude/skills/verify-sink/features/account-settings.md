@@ -85,7 +85,7 @@ Status: **recipe, not yet driven**.
     {"login":{"email":"delete-user@verify.test","password":"verify-password"}},
     {"goto":"/settings/profile"},
     {"clickRole":{"role":"button","name":"Delete account"}},
-    {"expectRole":{"role":"heading","name":"Are you sure you want to delete your account?"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Are you sure you want to delete your account?"}},
     {"fillLabel":{"label":"Password","value":"verify-password"}},
     {"clickRole":{"role":"button","name":"Delete account"}},
     {"expectUrl":{"contains":"/"}}

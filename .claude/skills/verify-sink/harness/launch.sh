@@ -58,7 +58,7 @@ ok "created PostgreSQL database $DB_NAME"
 	printf 'PGPORT_=%q\n' "$PGPORT_"
 	printf 'PGUSER_=%q\n' "$PGUSER_"
 	printf 'PGPASSWORD_SOURCE=%q\n' "$PGPASSWORD_SOURCE"
-	printf 'SERVER_PID=\nWORKER_PID=\n'
+	printf 'SERVER_PID=\nSERVER_LOG_PID=\nWORKER_PID=\n'
 } > "$RUN_DIR/run.env"
 printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
 
@@ -86,17 +86,20 @@ ROUTER="$APP_DIR/vendor/laravel/framework/src/Illuminate/Foundation/resources/se
 export PHP_CLI_SERVER_WORKERS="${VERIFY_SERVER_WORKERS:-4}"
 
 cd "$APP_DIR/public" || die "Cannot enter public directory $APP_DIR/public."
-php -d variables_order=EGPCS -S "127.0.0.1:$PORT" "$ROUTER" > "$RUN_DIR/server.log" 2>&1 &
+mkfifo "$RUN_DIR/server-log.pipe"
+perl -pe 'BEGIN { $| = 1 } s{(/register/)[A-Za-z0-9]{40}}{${1}[REDACTED]}g' < "$RUN_DIR/server-log.pipe" > "$RUN_DIR/server.log" &
+SERVER_LOG_PID=$!
+php -d variables_order=EGPCS -S "127.0.0.1:$PORT" "$ROUTER" > "$RUN_DIR/server-log.pipe" 2>&1 &
 SERVER_PID=$!
 cd "$APP_DIR" || die "Cannot return to application directory $APP_DIR."
 
 php -d variables_order=EGPCS artisan queue:work database --queue=default --tries=3 --sleep=1 --timeout=90 > "$RUN_DIR/worker.log" 2>&1 &
 WORKER_PID=$!
 
-if sed -i '' -e "s/^SERVER_PID=.*/SERVER_PID=$SERVER_PID/" -e "s/^WORKER_PID=.*/WORKER_PID=$WORKER_PID/" "$RUN_DIR/run.env" 2>/dev/null; then
+if sed -i '' -e "s/^SERVER_PID=.*/SERVER_PID=$SERVER_PID/" -e "s/^SERVER_LOG_PID=.*/SERVER_LOG_PID=$SERVER_LOG_PID/" -e "s/^WORKER_PID=.*/WORKER_PID=$WORKER_PID/" "$RUN_DIR/run.env" 2>/dev/null; then
 	:
 else
-	sed -i -e "s/^SERVER_PID=.*/SERVER_PID=$SERVER_PID/" -e "s/^WORKER_PID=.*/WORKER_PID=$WORKER_PID/" "$RUN_DIR/run.env"
+	sed -i -e "s/^SERVER_PID=.*/SERVER_PID=$SERVER_PID/" -e "s/^SERVER_LOG_PID=.*/SERVER_LOG_PID=$SERVER_LOG_PID/" -e "s/^WORKER_PID=.*/WORKER_PID=$WORKER_PID/" "$RUN_DIR/run.env"
 fi
 
 ready=0

@@ -52,7 +52,7 @@ The sidebar entry, invitation acceptance, invalid token, and logout remain recip
     {"login":{"email":"admin@verify.test","password":"verify-password"}},
     {"clickRole":{"role":"link","name":"Invitations"}},
     {"expectUrl":{"contains":"/admin/invitations"}},
-    {"expectRole":{"role":"heading","name":"Invitations"}}
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Invitations"}}
   ]
   ```
   ```json
@@ -61,7 +61,7 @@ The sidebar entry, invitation acceptance, invalid token, and logout remain recip
     {"clickRole":{"role":"button","name":"Toggle sidebar"}},
     {"clickRole":{"role":"link","name":"Invitations"}},
     {"expectUrl":{"contains":"/admin/invitations"}},
-    {"expectRole":{"role":"heading","name":"Invitations"}}
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Invitations"}}
   ]
   ```
 - **Recipient accepts** - this recipe creates the invitation, captures the callout value without
@@ -76,7 +76,7 @@ The sidebar entry, invitation acceptance, invalid token, and logout remain recip
     {"shot":"invitation-created"},
     {"newContext":true},
     {"goto":"{{invitationUrl}}"},
-    {"expectRole":{"role":"heading","name":"Accept your invitation"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Accept your invitation"}},
     {"fillLabel":{"label":"Name","value":"Invited {{viewport}}"}},
     {"fillLabel":{"label":"Password","value":"accepted-password"}},
     {"fillLabel":{"label":"Confirm password","value":"accepted-password"}},
@@ -95,7 +95,7 @@ The sidebar entry, invitation acceptance, invalid token, and logout remain recip
   ```json
   [
     {"goto":"/register/unknown-token"},
-    {"expectRole":{"role":"heading","name":"Invitation invalid or expired"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Invitation invalid or expired"}},
     {"expectMissing":"form"},
     {"goto":"/register"},
     {"expectStatus":404}

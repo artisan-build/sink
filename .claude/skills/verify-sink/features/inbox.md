@@ -29,7 +29,7 @@ Status: **recipe, not yet driven**.
   [
     {"login":{"email":"user@verify.test","password":"verify-password"}},
     {"goto":"/inbox"},
-    {"expectRole":{"role":"heading","name":"Inbox"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Inbox"}},
     {"expectRole":{"role":"link","name":"Verification message"}},
     {"shot":"before-filter"},
     {"fillLabel":{"label":"Source app","value":"verify-source"}},
@@ -46,7 +46,7 @@ Status: **recipe, not yet driven**.
     {"shot":"after-restore"},
     {"clickRole":{"role":"link","name":"Verification message"}},
     {"expectUrl":{"contains":"/inbox/"}},
-    {"expectRole":{"role":"heading","name":"Verification message"}}
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Verification message"}}
   ]
   ```
 - **Recipient and inclusive date filters**:

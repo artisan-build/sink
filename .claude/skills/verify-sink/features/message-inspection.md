@@ -34,12 +34,12 @@ Status: **recipe, not yet driven**.
     {"goto":"/inbox"},
     {"shot":"before-detail"},
     {"clickRole":{"role":"link","name":"Verification message"}},
-    {"expectRole":{"role":"heading","name":"Verification message"}},
-    {"expectRole":{"role":"heading","name":"Recipients"}},
-    {"expectRole":{"role":"heading","name":"Body"}},
-    {"expectRole":{"role":"heading","name":"Headers"}},
-    {"expectRole":{"role":"heading","name":"Links"}},
-    {"expectRole":{"role":"heading","name":"Attachments"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Verification message"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Recipients"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Body"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Headers"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Links"}},
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Attachments"}},
     {"expectText":{"selector":"body","contains":"recipient@verify.test"}},
     {"expectText":{"selector":"body","contains":"https://example.test/verify"}},
     {"expectAttribute":{"selector":"iframe[title='Sandboxed message body']","name":"sandbox","equals":""}},
@@ -49,7 +49,7 @@ Status: **recipe, not yet driven**.
     {"shot":"message-detail"},
     {"clickRole":{"role":"link","name":"Back to inbox"}},
     {"expectUrl":{"contains":"/inbox"}},
-    {"expectRole":{"role":"heading","name":"Inbox"}}
+    {"expectText":{"selector":"[data-flux-heading]","contains":"Inbox"}}
   ]
   ```
 - **Open raw source in its real new-tab entry point** - `clickNewPage` waits for the popup and switches
