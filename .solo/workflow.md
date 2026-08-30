@@ -10,7 +10,13 @@ READMEs and this repo's `docs/sink-build-handover.md` (the authoritative build s
 - phase: pre-launch (greenfield)
 - default mode: A-autonomous
 - merge_policy: merge when CI is green; no human PR code review
-- merge method: `gh pr merge --squash --auto`
+- merge method: `gh pr merge --squash --delete-branch` — **explicitly NOT `--auto`.**
+  ⚠️ `artisan-build/sink` main has **no branch protection and no rulesets** (re-verified 2026-08-30:
+  `/branches/main/protection` 404s, `/rulesets` is `[]`). With nothing required, `--auto` merges
+  IMMEDIATELY instead of waiting — this already happened on PRs #20 and #21 (sink#22), where
+  "merge on green" was really "merge, then green". CI passed those times; that was luck, not a gate.
+  **Poll the checks and merge only after both `tests` and `lint` report an actual `SUCCESS`
+  conclusion on the exact head SHA.**
 
 ## Hard gate (must be green before review; coordinator verifies on the committed SHA, clean tree)
 - command: `composer ready` at the repo root (ide-helper → rector → pint → phpstan → full Pest → `composer audit`).
@@ -42,15 +48,19 @@ READMEs and this repo's `docs/sink-build-handover.md` (the authoritative build s
 - NEVER symlink or `cp -R` `vendor/` (root or package level) — Composer resolves the wrong checkout and
   produces phantom framework-boot/test failures. Real install only.
 
-## Harness map (role → runtime; decorrelate by ROLE/FRAMING, not model lineage)
-- In THIS Solo environment only **Claude (agent_tool_id 3)** and **OpenCode (agent_tool_id 2)** run
-  reliably; Codex/Kimi/Gemini are broken here. Decorrelate reviewers by role/framing, not by model.
-- implementer: OpenCode (Solo `agent_tool_id 2`) — persistent agent in the PR worktree; honors
-  `extra_args=["<worktree path>"]` to set cwd.
-- quality reviewer: Claude (Solo `agent_tool_id 3`), one-shot, ADVERSARIAL framing — "find what's wrong;
-  default to reject." Distinct prompt/scope from the judge.
-- acceptance judge: Claude (Solo `agent_tool_id 3`) — judges strictly vs the PR's acceptance criteria;
-  must read REAL `composer ready` / test output, not the implementer's claims.
+## Harness map (role → runtime)
+
+**Resolve every role through `~/Herd/brain/playbooks/resolve-agent-role.md` against
+`~/Herd/brain/agents.json`.** That file is the fleet-wide authority; this profile does not restate it.
+
+⚠️ The harness map that used to sit here was stale and wrong. It claimed "Codex/Kimi/Gemini are broken
+here" and pinned implementer/reviewer/judge to hardcoded `agent_tool_id`s. Codex has since run a full
+four-PR build end to end (Scalpels Console, 2026-08-30), and Solo ids drift on re-add. A copied harness
+map is exactly what `resolve-agent-role.md` says a project profile must not contain — it goes stale
+silently and sends a coordinator to the wrong runtime with no error.
+
+The only project-specific constraint that survives: implementers run persistently in their PR worktree
+and honour `extra_args=["<worktree path>"]` to set cwd.
 
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 
