@@ -62,6 +62,21 @@ silently and sends a coordinator to the wrong runtime with no error.
 The only project-specific constraint that survives: implementers run persistently in their PR worktree
 and honour `extra_args=["<worktree path>"]` to set cwd.
 
+## Review concurrency — serialize, or use separate worktrees
+
+**A quality reviewer and an acceptance judge must NOT run concurrently in the same worktree.** Run the
+reviewer to completion, then the judge; or give each its own worktree at the same SHA.
+
+Even when both briefs forbid edits, a judge that runs the conformance gate (`composer ready` — which
+includes Rector and Pint) is running a **rewriting** command. A reviewer reading files underneath that
+can see rewritten code and report a defect that does not exist in the committed tree, and there is no
+way afterwards to tell a phantom finding from a real one.
+
+Learned on scalpels.app and re-learned here on sink PR2 (2026-08-31), where reviewer and judge did
+overlap: the tree happened to come back clean, so the verdicts were retained as **defect-discovery
+evidence only, not as reusable release gates**. That is the right salvage — a gate you cannot trust the
+provenance of is not a gate.
+
 ## Toolchain conformance — the ride-along rule (STANDING, all projects)
 
 Run the project's full conformance command (`composer ready`, or the stack equivalent) as part of
