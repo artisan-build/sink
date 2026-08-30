@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set -euo pipefail
+# shellcheck disable=SC2030,SC2031 -- credential overrides are intentionally isolated in command-substitution subshells.
 
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/sink-verify-credentials.XXXXXX")"
