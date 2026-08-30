@@ -21,7 +21,7 @@
 Preconditions: baseline 1-4. Seed `admin@verify.test` with password `verify-password` and `--admin`.
 
 Status: **driven 2026-08-30** for direct `/admin/invitations` creation at `1280x800` and `390x844`.
-The sidebar entry, invitation acceptance, invalid token, and logout remain recipes.
+Invitation acceptance is also driven at both required viewports; the sidebar entry, invalid token, and logout remain recipes.
 
 - **Admin creates invitations from the direct route** - write this exact step file and run both viewports:
   ```json
