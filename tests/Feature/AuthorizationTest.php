@@ -8,6 +8,8 @@ use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\Invitation;
+use ArtisanBuild\BuiltForCloud\OffboardedSubject;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\SinkServer\Models\Message;
 use Carbon\CarbonImmutable;
 use Illuminate\Session\Middleware\StartSession;
@@ -131,6 +133,24 @@ test('local route enforcement and every admin affordance share the ability', fun
     'decoy local member is denied' => [false],
 ]);
 
+test('the invitations route denies an offboarded local admin and invalidates the surviving session', function (): void {
+    $admin = authorizationUser(true);
+
+    $this->actingAs($admin)->withSession(['residue' => 'still-here']);
+    $this->get(route('invitations'))->assertOk();
+
+    OffboardedSubject::query()->create([
+        'subject_type' => SubjectType::UserPrincipal,
+        'subject_ref' => $admin->email,
+        'user_id' => (string) $admin->getAuthIdentifier(),
+        'offboarded_at' => now(),
+    ]);
+
+    $this->get(route('invitations'))->assertForbidden();
+
+    expect(session()->has('residue'))->toBeFalse();
+});
+
 test('the shipped console guard admits delegated admins and denies delegated members', function (ConsoleRole $role): void {
     $actor = authorizationDelegatedActor($role);
 
@@ -237,7 +257,7 @@ test('delegated type-qualified identifiers fit the shipped invitation inviter co
     );
 
     expect($identifier)->toStartWith(DelegatedActor::IDENTIFIER_PREFIX)
-        ->and(strlen($identifier))->toBeLessThanOrEqual(64)
+        ->and(Str::length($identifier))->toBeLessThanOrEqual(64)
         ->and($invitation->refresh()->invited_by)->toBe($identifier);
 });
 

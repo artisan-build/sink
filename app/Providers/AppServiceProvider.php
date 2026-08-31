@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
+use ArtisanBuild\BuiltForCloud\OffboardedSubject;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -49,7 +50,21 @@ class AppServiceProvider extends ServiceProvider
                 return false;
             }
 
-            return $acting->principal instanceof User && $acting->principal->is_admin;
+            $user = $acting->principal;
+
+            if (! $user instanceof User || ! $user->is_admin) {
+                return false;
+            }
+
+            if (OffboardedSubject::userIsOffboarded((string) $user->getAuthIdentifier())) {
+                if (request()->hasSession()) {
+                    request()->session()->invalidate();
+                }
+
+                return false;
+            }
+
+            return true;
         });
     }
 
