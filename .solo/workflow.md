@@ -35,16 +35,11 @@ READMEs and this repo's `docs/sink-build-handover.md` (the authoritative build s
   - `.github/workflows/lint.yml` (push + PR to main): `composer lint` (Pint).
   - PR #1 must ADD `.github/workflows/release.yml` (lockstep `v*` tag → `php artisan kibble:split` to the
     three read-only package mirrors), mirroring Matte's `release.yml`.
-- NOTE: CI installs Flux Pro via `secrets.FLUX_USERNAME` / `secrets.FLUX_LICENSE_KEY`. Those repo
-  secrets MUST be set on `artisan-build/sink` or every CI run fails at `composer install`. (Setup
-  blocker flagged to Ed — see brain log.)
 
 ## Dependency install (fresh worktree)
 - command: `composer install --no-interaction` at the root AND inside every touched `packages/sink-<pkg>`.
 - post-install: copy `.env` from `.env.example`, `php artisan key:generate`,
   `touch database/database.sqlite`, `php artisan migrate --graceful`.
-- Flux Pro auth required: the worktree needs `composer config http-basic.composer.fluxui.dev <user> <key>`
-  (or a global `auth.json`) or `composer install` fails. Confirm auth is present before spawning implementers.
 - NEVER symlink or `cp -R` `vendor/` (root or package level) — Composer resolves the wrong checkout and
   produces phantom framework-boot/test failures. Real install only.
 
