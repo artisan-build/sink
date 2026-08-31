@@ -14,9 +14,11 @@ use Illuminate\Support\Str;
 use Livewire\Livewire;
 
 beforeEach(function (): void {
-    if (! Schema::connection('sink')->hasTable('messages')) {
+    $connection = (string) config('sink-server.database.connection');
+
+    if (! Schema::connection($connection)->hasTable('messages')) {
         Artisan::call('migrate', [
-            '--database' => 'sink',
+            '--database' => $connection,
             '--path' => 'packages/sink-server/database/migrations',
             '--realpath' => true,
         ]);
