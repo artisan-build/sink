@@ -92,6 +92,68 @@ BLADE],
     'native PHP' => ['<?php $markup = "<section data-testid=one data-test=two></section>"; ?>'],
 ]);
 
+test('the Blade marker lint ignores quoted context terminators', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->not->toThrow(AssertionFailedError::class);
+})->with([
+    'escaped Blade echo' => ['{{ "}}" . "<section data-testid=one data-test=two></section>" }}'],
+    'escaped quote in Blade echo' => ['{{ "\"" . "}}" . "<section data-testid=one data-test=two></section>" }}'],
+    'raw Blade echo' => ['{!! "!!}" . "<section data-testid=one data-test=two></section>" !!}'],
+    'block Blade PHP' => [<<<'BLADE'
+@php
+    $terminator = "@endphp";
+    $markup = "<section data-testid=one data-test=two></section>";
+@endphp
+BLADE],
+    'native PHP' => ['<?php $terminator = "?>"; $markup = "<section data-testid=one data-test=two></section>"; ?>'],
+]);
+
+test('the Blade marker lint stops masking at the actual context terminator', function (string $source, int $line): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            "Blade source:{$line} has multiple data-testid/data-test marker attributes on one element.",
+        );
+})->with([
+    'escaped Blade echo' => [<<<'BLADE'
+{{ "}}" . "<section data-testid=ignored data-test=ignored></section>" }}
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'raw Blade echo' => [<<<'BLADE'
+{!! "!!}" . "<section data-testid=ignored data-test=ignored></section>" !!}
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'block Blade PHP' => [<<<'BLADE'
+@php
+    $terminator = "@endphp";
+    $markup = "<section data-testid=ignored data-test=ignored></section>";
+@endphp
+<section data-testid=one data-test=two></section>
+BLADE, 5],
+    'native PHP' => [<<<'BLADE'
+<?php $terminator = "?>"; $markup = "<section data-testid=ignored data-test=ignored></section>"; ?>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+]);
+
+test('the Blade marker lint fails closed on unterminated source contexts', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:1 has an unterminated Blade/PHP source context.',
+        );
+})->with([
+    'escaped Blade echo' => ['{{ "<section data-testid=one data-test=two></section>"'],
+    'raw Blade echo' => ['{!! "<section data-testid=one data-test=two></section>"'],
+    'inline Blade PHP' => ['@php($markup = "<section data-testid=one data-test=two></section>"'],
+    'block Blade PHP' => [<<<'BLADE'
+@php
+    $markup = "<section data-testid=one data-test=two></section>";
+BLADE],
+    'native PHP' => ['<?php $markup = "<section data-testid=one data-test=two></section>";'],
+    'Blade comment' => ['{{-- <section data-testid=one data-test=two></section>'],
+]);
+
 test('the Blade marker lint requires exact raw text closing tag names', function (string $tag): void {
     expect(fn () => assertBladeSourceTestMarkers(
         "<{$tag}><section data-testid=one data-test=two></{$tag}-extra><section data-testid=one data-test=two></{$tag}>",

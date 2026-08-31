@@ -103,22 +103,59 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
             }
         }
     };
+    $findUnquotedDelimiterEnd = static function (string $value, int $offset, string $delimiter): ?int {
+        $valueLength = strlen($value);
+        $delimiterLength = strlen($delimiter);
+        $quote = null;
+
+        while ($offset < $valueLength) {
+            $character = $value[$offset];
+
+            if ($quote !== null) {
+                if ($character === '\\') {
+                    $offset++;
+                } elseif ($character === $quote) {
+                    $quote = null;
+                }
+            } elseif ($character === '"' || $character === "'") {
+                $quote = $character;
+            } elseif (substr_compare($value, $delimiter, $offset, $delimiterLength, true) === 0) {
+                return $offset + $delimiterLength;
+            }
+
+            $offset++;
+        }
+
+        return null;
+    };
+    $requireContextEnd = static function (?int $contextEnd, int $contextStart) use ($source, $sourceName): int {
+        if ($contextEnd === null) {
+            $line = substr_count($source, "\n", 0, $contextStart) + 1;
+
+            Assert::fail("{$sourceName}:{$line} has an unterminated Blade/PHP source context.");
+        }
+
+        return $contextEnd;
+    };
     $contextOffset = 0;
 
     while ($contextOffset < $sourceLength) {
         foreach ([
-            ['{{--', '--}}'],
-            ['{!!', '!!}'],
-            ['{{', '}}'],
-        ] as [$openingDelimiter, $closingDelimiter]) {
+            ['{{--', '--}}', false],
+            ['{!!', '!!}', true],
+            ['{{', '}}', true],
+        ] as [$openingDelimiter, $closingDelimiter, $quoteAware]) {
             if (substr_compare($source, $openingDelimiter, $contextOffset, strlen($openingDelimiter)) !== 0) {
                 continue;
             }
 
-            $closingOffset = strpos($source, $closingDelimiter, $contextOffset + strlen($openingDelimiter));
-            $contextEnd = $closingOffset === false
-                ? $sourceLength
-                : $closingOffset + strlen($closingDelimiter);
+            $contentOffset = $contextOffset + strlen($openingDelimiter);
+            $contextEnd = $quoteAware
+                ? $findUnquotedDelimiterEnd($source, $contentOffset, $closingDelimiter)
+                : (($closingOffset = strpos($source, $closingDelimiter, $contentOffset)) === false
+                    ? null
+                    : $closingOffset + strlen($closingDelimiter));
+            $contextEnd = $requireContextEnd($contextEnd, $contextOffset);
             $maskSourceRange($contextOffset, $contextEnd);
             $contextOffset = $contextEnd;
 
@@ -126,8 +163,8 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
         }
 
         if (substr_compare($source, '<?', $contextOffset, 2) === 0) {
-            $closingOffset = strpos($source, '?>', $contextOffset + 2);
-            $contextEnd = $closingOffset === false ? $sourceLength : $closingOffset + 2;
+            $contextEnd = $findUnquotedDelimiterEnd($source, $contextOffset + 2, '?>');
+            $contextEnd = $requireContextEnd($contextEnd, $contextOffset);
             $maskSourceRange($contextOffset, $contextEnd);
             $contextOffset = $contextEnd;
 
@@ -153,6 +190,7 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
         if ($directiveOffset < $sourceLength && $source[$directiveOffset] === '(') {
             $parenthesisDepth = 0;
             $quote = null;
+            $directiveIsTerminated = false;
 
             while ($directiveOffset < $sourceLength) {
                 $character = $source[$directiveOffset];
@@ -169,6 +207,7 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
                     $parenthesisDepth++;
                 } elseif ($character === ')' && --$parenthesisDepth === 0) {
                     $directiveOffset++;
+                    $directiveIsTerminated = true;
 
                     break;
                 }
@@ -176,14 +215,15 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
                 $directiveOffset++;
             }
 
+            $requireContextEnd($directiveIsTerminated ? $directiveOffset : null, $contextOffset);
             $maskSourceRange($contextOffset, $directiveOffset);
             $contextOffset = $directiveOffset;
 
             continue;
         }
 
-        $closingOffset = stripos($source, '@endphp', $directiveOffset);
-        $contextEnd = $closingOffset === false ? $sourceLength : $closingOffset + strlen('@endphp');
+        $contextEnd = $findUnquotedDelimiterEnd($source, $directiveOffset, '@endphp');
+        $contextEnd = $requireContextEnd($contextEnd, $contextOffset);
         $maskSourceRange($contextOffset, $contextEnd);
         $contextOffset = $contextEnd;
     }
