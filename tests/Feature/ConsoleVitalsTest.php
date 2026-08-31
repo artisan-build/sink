@@ -49,7 +49,7 @@ beforeEach(function (): void {
 });
 
 test('production wiring preserves the default declaration contract and behavior', function (): void {
-    $declaration = app(CredentialDeclaration::class);
+    $declaration = resolve(CredentialDeclaration::class);
     $request = Request::create('/bfc/console/vitals');
     $credential = $this->mintCredential()->credential;
 

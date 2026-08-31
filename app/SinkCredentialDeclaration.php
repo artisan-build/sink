@@ -18,11 +18,11 @@ use ArtisanBuild\BuiltForCloud\Vitals\HeadlineUnit;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Http\Request;
 
-final class SinkCredentialDeclaration implements AuthorizesCredentialVerbs, CredentialDeclaration, DeclaresBurnMode, DeclaresHeadlineStat, DeclaresHolderResolution, DeclaresPresentationCadence
+final readonly class SinkCredentialDeclaration implements AuthorizesCredentialVerbs, CredentialDeclaration, DeclaresBurnMode, DeclaresHeadlineStat, DeclaresHolderResolution, DeclaresPresentationCadence
 {
     public const ?string HEADLINE_VOCABULARY = SinkHeadlineLabel::class;
 
-    public function __construct(private readonly DefaultCredentialDeclaration $default) {}
+    public function __construct(private DefaultCredentialDeclaration $default) {}
 
     public function resolveSubject(Request $request): ?Subject
     {
