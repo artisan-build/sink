@@ -35,7 +35,7 @@ beforeEach(function (): void {
         'bfc.console',
         'auth:'.ConsoleGuardConfiguration::GUARD,
     ])->get('/_test/authorization/console-probe', function (): array {
-        $acting = app(ActingPrincipalResolver::class)->resolve();
+        $acting = resolve(ActingPrincipalResolver::class)->resolve();
 
         return [
             'principal' => $acting->identifier(),
@@ -43,7 +43,7 @@ beforeEach(function (): void {
             'role' => $acting->role?->value,
             'row_role' => $acting->delegatedActor?->last_handoff_role->value,
             'ability' => Gate::allows('administer-sink'),
-            'same_resolution' => $acting === app(ActingPrincipalResolver::class)->resolve(),
+            'same_resolution' => $acting === resolve(ActingPrincipalResolver::class)->resolve(),
             'local_session_user' => Auth::guard('web')->id(),
         ];
     });
@@ -57,7 +57,7 @@ beforeEach(function (): void {
 
     Route::middleware([StartSession::class, 'auth:web'])
         ->get('/_test/authorization/local-probe', function (): array {
-            $acting = app(ActingPrincipalResolver::class)->resolve();
+            $acting = resolve(ActingPrincipalResolver::class)->resolve();
 
             return [
                 'principal' => $acting->identifier(),
@@ -76,7 +76,7 @@ test('the ability maps only local Sink admins to administrative standing', funct
     $user = authorizationUser($isAdmin);
 
     $this->actingAs($user);
-    $acting = app(ActingPrincipalResolver::class)->resolve();
+    $acting = resolve(ActingPrincipalResolver::class)->resolve();
 
     expect($acting->principal)->toBe($user)
         ->and($acting->delegated)->toBeFalse()
