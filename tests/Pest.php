@@ -94,11 +94,101 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
 
 function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blade source'): void
 {
-    $source = preg_replace('/\{\{--.*?--\}\}/s', '', $source);
-
-    Assert::assertIsString($source, "Failed preparing [{$sourceName}] for marker linting.");
-
     $sourceLength = strlen($source);
+    $maskedSource = $source;
+    $maskSourceRange = static function (int $start, int $end) use (&$maskedSource): void {
+        for ($index = $start; $index < $end; $index++) {
+            if (! in_array($maskedSource[$index], ["\r", "\n"], true)) {
+                $maskedSource[$index] = ' ';
+            }
+        }
+    };
+    $contextOffset = 0;
+
+    while ($contextOffset < $sourceLength) {
+        foreach ([
+            ['{{--', '--}}'],
+            ['{!!', '!!}'],
+            ['{{', '}}'],
+        ] as [$openingDelimiter, $closingDelimiter]) {
+            if (substr_compare($source, $openingDelimiter, $contextOffset, strlen($openingDelimiter)) !== 0) {
+                continue;
+            }
+
+            $closingOffset = strpos($source, $closingDelimiter, $contextOffset + strlen($openingDelimiter));
+            $contextEnd = $closingOffset === false
+                ? $sourceLength
+                : $closingOffset + strlen($closingDelimiter);
+            $maskSourceRange($contextOffset, $contextEnd);
+            $contextOffset = $contextEnd;
+
+            continue 2;
+        }
+
+        if (substr_compare($source, '<?', $contextOffset, 2) === 0) {
+            $closingOffset = strpos($source, '?>', $contextOffset + 2);
+            $contextEnd = $closingOffset === false ? $sourceLength : $closingOffset + 2;
+            $maskSourceRange($contextOffset, $contextEnd);
+            $contextOffset = $contextEnd;
+
+            continue;
+        }
+
+        $isPhpDirective = substr_compare($source, '@php', $contextOffset, 4, true) === 0
+            && ($contextOffset + 4 >= $sourceLength
+                || (! ctype_alnum($source[$contextOffset + 4]) && $source[$contextOffset + 4] !== '_'));
+
+        if (! $isPhpDirective) {
+            $contextOffset++;
+
+            continue;
+        }
+
+        $directiveOffset = $contextOffset + 4;
+
+        while ($directiveOffset < $sourceLength && in_array($source[$directiveOffset], [' ', "\t"], true)) {
+            $directiveOffset++;
+        }
+
+        if ($directiveOffset < $sourceLength && $source[$directiveOffset] === '(') {
+            $parenthesisDepth = 0;
+            $quote = null;
+
+            while ($directiveOffset < $sourceLength) {
+                $character = $source[$directiveOffset];
+
+                if ($quote !== null) {
+                    if ($character === '\\') {
+                        $directiveOffset++;
+                    } elseif ($character === $quote) {
+                        $quote = null;
+                    }
+                } elseif ($character === '"' || $character === "'") {
+                    $quote = $character;
+                } elseif ($character === '(') {
+                    $parenthesisDepth++;
+                } elseif ($character === ')' && --$parenthesisDepth === 0) {
+                    $directiveOffset++;
+
+                    break;
+                }
+
+                $directiveOffset++;
+            }
+
+            $maskSourceRange($contextOffset, $directiveOffset);
+            $contextOffset = $directiveOffset;
+
+            continue;
+        }
+
+        $closingOffset = stripos($source, '@endphp', $directiveOffset);
+        $contextEnd = $closingOffset === false ? $sourceLength : $closingOffset + strlen('@endphp');
+        $maskSourceRange($contextOffset, $contextEnd);
+        $contextOffset = $contextEnd;
+    }
+
+    $source = $maskedSource;
     $offset = 0;
 
     while (($tagStart = strpos($source, '<', $offset)) !== false) {
@@ -136,11 +226,8 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
             $tagEnd++;
         }
 
-        if ($tagEnd >= $sourceLength) {
-            break;
-        }
-
-        $tag = substr($source, $tagStart, $tagEnd - $tagStart + 1);
+        $tagIsTerminated = $tagEnd < $sourceLength;
+        $tag = substr($source, $tagStart, $tagEnd - $tagStart + ($tagIsTerminated ? 1 : 0));
         $tagLength = strlen($tag);
         $cursor = 1;
 
@@ -216,17 +303,27 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
             "{$sourceName}:{$line} has multiple data-testid/data-test marker attributes on one element.",
         );
 
+        Assert::assertTrue(
+            $tagIsTerminated,
+            "{$sourceName}:{$line} has an unterminated source tag or quoted attribute.",
+        );
+
         $offset = $tagEnd + 1;
 
-        if (in_array($tagName, ['script', 'style'], true)) {
-            $closingTag = stripos($source, "</{$tagName}", $offset);
+        if (in_array($tagName, ['script', 'style', 'textarea', 'title'], true)) {
+            $closingTagResult = preg_match(
+                "/<\/{$tagName}\s*>/i",
+                $source,
+                $closingTagMatch,
+                PREG_OFFSET_CAPTURE,
+                $offset,
+            );
 
-            if ($closingTag === false) {
+            if ($closingTagResult !== 1) {
                 break;
             }
 
-            $closingTagEnd = strpos($source, '>', $closingTag);
-            $offset = $closingTagEnd === false ? $sourceLength : $closingTagEnd + 1;
+            $offset = $closingTagMatch[0][1] + strlen($closingTagMatch[0][0]);
         }
     }
 }

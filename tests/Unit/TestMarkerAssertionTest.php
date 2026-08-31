@@ -68,11 +68,125 @@ BLADE);
 test('the Blade marker lint ignores marker-like script comment and text content', function (): void {
     assertBladeSourceTestMarkers(<<<'BLADE'
 <script>const marker = '<section data-testid="console-shell" data-test="legacy-shell"></section>';</script>
+<style>.marker::before { content: '<section data-testid="console-shell" data-test="legacy-shell"></section>'; }</style>
 <!-- <section data-testid="console-shell" data-test="legacy-shell"></section> -->
 {{-- <section data-testid="console-shell" data-test="legacy-shell"></section> --}}
 <p>data-testid="console-shell" data-test="legacy-shell"</p>
 BLADE);
 });
+
+test('the Blade marker lint ignores tag-looking source code and raw text', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->not->toThrow(AssertionFailedError::class);
+})->with([
+    'escaped Blade echo' => ['{{ "<section data-testid=one data-test=two></section>" }}'],
+    'inline Blade PHP' => ['@php($markup = "<section data-testid=one data-test=two></section>")'],
+    'textarea RCDATA' => ['<textarea><section data-testid=one data-test=two></section></textarea>'],
+    'block Blade PHP' => [<<<'BLADE'
+@php
+    $markup = "<section data-testid=one data-test=two></section>";
+@endphp
+BLADE],
+    'raw Blade echo' => ['{!! "<section data-testid=one data-test=two></section>" !!}'],
+    'title RCDATA' => ['<title><section data-testid=one data-test=two></section></title>'],
+    'native PHP' => ['<?php $markup = "<section data-testid=one data-test=two></section>"; ?>'],
+]);
+
+test('the Blade marker lint requires exact raw text closing tag names', function (string $tag): void {
+    expect(fn () => assertBladeSourceTestMarkers(
+        "<{$tag}><section data-testid=one data-test=two></{$tag}-extra><section data-testid=one data-test=two></{$tag}>",
+    ))
+        ->not->toThrow(AssertionFailedError::class);
+})->with([
+    'script' => ['script'],
+    'style' => ['style'],
+    'textarea' => ['textarea'],
+    'title' => ['title'],
+]);
+
+test('the Blade marker lint fails closed on an unterminated quoted attribute', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(
+        '<section data-testid=one data-test=two title="unterminated></section>',
+    ))
+        ->toThrow(AssertionFailedError::class);
+});
+
+test('the Blade marker lint fails closed on any unterminated source tag', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(AssertionFailedError::class);
+})->with([
+    'unterminated quoted value' => ['<section data-testid=one title="unterminated'],
+    'unterminated tag' => ['<section data-testid=one'],
+]);
+
+test('the Blade marker lint preserves line numbers across multiline comments', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(<<<'BLADE'
+{{--
+<section data-testid=ignored data-test=ignored></section>
+--}}
+
+<section data-testid=one data-test=two></section>
+BLADE))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:5 has multiple data-testid/data-test marker attributes on one element.',
+        );
+});
+
+test('the Blade marker lint still finds real tags adjacent to excluded contexts', function (string $source, int $line): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            "Blade source:{$line} has multiple data-testid/data-test marker attributes on one element.",
+        );
+})->with([
+    'escaped Blade echo' => [<<<'BLADE'
+{{ "<section data-testid=ignored data-test=ignored></section>" }}
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'inline Blade PHP' => [<<<'BLADE'
+@php($markup = "<section data-testid=ignored data-test=ignored></section>")
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'block Blade PHP' => [<<<'BLADE'
+@php
+    $markup = "<section data-testid=ignored data-test=ignored></section>";
+@endphp
+<section data-testid=one data-test=two></section>
+BLADE, 4],
+    'raw Blade echo' => [<<<'BLADE'
+{!! "<section data-testid=ignored data-test=ignored></section>" !!}
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'textarea RCDATA' => [<<<'BLADE'
+<textarea><section data-testid=ignored data-test=ignored></section></textarea>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'title RCDATA' => [<<<'BLADE'
+<title><section data-testid=ignored data-test=ignored></section></title>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'script raw text' => [<<<'BLADE'
+<script>const markup = '<section data-testid=ignored data-test=ignored></section>';</script>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'style raw text' => [<<<'BLADE'
+<style>.marker::before { content: '<section data-testid=ignored data-test=ignored></section>'; }</style>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'HTML comment' => [<<<'BLADE'
+<!-- <section data-testid=ignored data-test=ignored></section> -->
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'Blade comment' => [<<<'BLADE'
+{{-- <section data-testid=ignored data-test=ignored></section> --}}
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+    'native PHP' => [<<<'BLADE'
+<?php $markup = "<section data-testid=ignored data-test=ignored></section>"; ?>
+<section data-testid=one data-test=two></section>
+BLADE, 2],
+]);
 
 test('the Blade marker lint accepts repeated markers on different elements', function (): void {
     assertBladeSourceTestMarkers(
