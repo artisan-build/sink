@@ -46,8 +46,7 @@ expect()->extend('toBeOne', fn () => $this->toBe(1));
 */
 
 /**
- * Assert an exact canonical or legacy structural marker and reject elements
- * carrying multiple marker attributes.
+ * Assert an exact canonical or legacy structural marker value.
  *
  * @param  TestResponse<Response>  $response
  */
@@ -69,32 +68,11 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
 
     Assert::assertTrue($parsed, 'Failed asserting that the response contains parseable HTML.');
 
-    $normalizedHtml = $document->saveHTML();
-
-    Assert::assertIsString($normalizedHtml, 'Failed asserting that the parsed response can be serialized.');
-
-    foreach (['data-testid', 'data-test'] as $attribute) {
-        $attributePattern = '/\b'.preg_quote($attribute, '/').'\s*=/i';
-        $sourceAttributeCount = preg_match_all($attributePattern, $html);
-        $normalizedAttributeCount = preg_match_all($attributePattern, $normalizedHtml);
-
-        Assert::assertSame(
-            $sourceAttributeCount,
-            $normalizedAttributeCount,
-            "DOM parsing must preserve every [{$attribute}] source attribute.",
-        );
-    }
-
-    $elementsWithDuplicateMarkers = 0;
     $markerCount = 0;
 
     foreach ($document->getElementsByTagName('*') as $element) {
         $hasCanonicalMarker = $element->hasAttribute('data-testid');
         $hasLegacyMarker = $element->hasAttribute('data-test');
-
-        if ($hasCanonicalMarker && $hasLegacyMarker) {
-            $elementsWithDuplicateMarkers++;
-        }
 
         if ($hasCanonicalMarker && $element->getAttribute('data-testid') === $marker) {
             $markerCount++;
@@ -105,12 +83,6 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
         }
     }
 
-    Assert::assertSame(
-        0,
-        $elementsWithDuplicateMarkers,
-        'An element may carry only one data-testid/data-test marker attribute.',
-    );
-
     if ($present) {
         Assert::assertGreaterThan(0, $markerCount, "Failed asserting that marker [{$marker}] is present.");
 
@@ -118,4 +90,143 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
     }
 
     Assert::assertSame(0, $markerCount, "Failed asserting that marker [{$marker}] is absent.");
+}
+
+function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blade source'): void
+{
+    $source = preg_replace('/\{\{--.*?--\}\}/s', '', $source);
+
+    Assert::assertIsString($source, "Failed preparing [{$sourceName}] for marker linting.");
+
+    $sourceLength = strlen($source);
+    $offset = 0;
+
+    while (($tagStart = strpos($source, '<', $offset)) !== false) {
+        if (substr_compare($source, '<!--', $tagStart, 4) === 0) {
+            $commentEnd = strpos($source, '-->', $tagStart + 4);
+            $offset = $commentEnd === false ? $sourceLength : $commentEnd + 3;
+
+            continue;
+        }
+
+        $tagNameStart = $tagStart + 1;
+
+        if ($tagNameStart >= $sourceLength || ! ctype_alpha($source[$tagNameStart])) {
+            $offset = $tagNameStart;
+
+            continue;
+        }
+
+        $tagEnd = $tagNameStart;
+        $quote = null;
+
+        while ($tagEnd < $sourceLength) {
+            $character = $source[$tagEnd];
+
+            if ($quote !== null) {
+                if ($character === $quote) {
+                    $quote = null;
+                }
+            } elseif ($character === '"' || $character === "'") {
+                $quote = $character;
+            } elseif ($character === '>') {
+                break;
+            }
+
+            $tagEnd++;
+        }
+
+        if ($tagEnd >= $sourceLength) {
+            break;
+        }
+
+        $tag = substr($source, $tagStart, $tagEnd - $tagStart + 1);
+        $tagLength = strlen($tag);
+        $cursor = 1;
+
+        while ($cursor < $tagLength && ! ctype_space($tag[$cursor]) && ! in_array($tag[$cursor], ['/', '>'], true)) {
+            $cursor++;
+        }
+
+        $tagName = strtolower(substr($tag, 1, $cursor - 1));
+        $markerAttributes = [];
+
+        while ($cursor < $tagLength) {
+            while ($cursor < $tagLength && ctype_space($tag[$cursor])) {
+                $cursor++;
+            }
+
+            if ($cursor >= $tagLength || in_array($tag[$cursor], ['/', '>'], true)) {
+                break;
+            }
+
+            $attributeStart = $cursor;
+
+            while ($cursor < $tagLength && ! ctype_space($tag[$cursor]) && ! in_array($tag[$cursor], ['=', '/', '>'], true)) {
+                $cursor++;
+            }
+
+            if ($attributeStart === $cursor) {
+                $cursor++;
+
+                continue;
+            }
+
+            $attribute = strtolower(substr($tag, $attributeStart, $cursor - $attributeStart));
+
+            if (in_array($attribute, ['data-testid', 'data-test'], true)) {
+                $markerAttributes[] = $attribute;
+            }
+
+            while ($cursor < $tagLength && ctype_space($tag[$cursor])) {
+                $cursor++;
+            }
+
+            if ($cursor >= $tagLength || $tag[$cursor] !== '=') {
+                continue;
+            }
+
+            $cursor++;
+
+            while ($cursor < $tagLength && ctype_space($tag[$cursor])) {
+                $cursor++;
+            }
+
+            if ($cursor < $tagLength && in_array($tag[$cursor], ['"', "'"], true)) {
+                $valueQuote = $tag[$cursor];
+                $cursor++;
+
+                while ($cursor < $tagLength && $tag[$cursor] !== $valueQuote) {
+                    $cursor++;
+                }
+
+                $cursor++;
+            } else {
+                while ($cursor < $tagLength && ! ctype_space($tag[$cursor]) && $tag[$cursor] !== '>') {
+                    $cursor++;
+                }
+            }
+        }
+
+        $line = substr_count($source, "\n", 0, $tagStart) + 1;
+
+        Assert::assertLessThanOrEqual(
+            1,
+            count($markerAttributes),
+            "{$sourceName}:{$line} has multiple data-testid/data-test marker attributes on one element.",
+        );
+
+        $offset = $tagEnd + 1;
+
+        if (in_array($tagName, ['script', 'style'], true)) {
+            $closingTag = stripos($source, "</{$tagName}", $offset);
+
+            if ($closingTag === false) {
+                break;
+            }
+
+            $closingTagEnd = strpos($source, '>', $closingTag);
+            $offset = $closingTagEnd === false ? $sourceLength : $closingTagEnd + 1;
+        }
+    }
 }

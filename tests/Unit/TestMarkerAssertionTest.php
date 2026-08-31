@@ -3,6 +3,7 @@
 use Illuminate\Testing\TestResponse;
 use PHPUnit\Framework\AssertionFailedError;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Process\Process;
 
 test('the shared marker helper accepts exact canonical and legacy attributes', function (string $attribute): void {
     $response = new TestResponse(new Response("<section {$attribute}=\"console-shell\"></section>"));
@@ -14,34 +15,91 @@ test('the shared marker helper accepts exact canonical and legacy attributes', f
     'legacy data-test' => ['data-test'],
 ]);
 
-test('the shared marker helper rejects multiple marker attributes on one element', function (): void {
-    $response = new TestResponse(new Response(
+test('the Blade marker lint rejects mixed marker attributes on one element', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(
         '<section data-testid="console-shell" data-test="legacy-shell"></section>',
-    ));
-
-    expect(fn () => assertTestMarker($response, 'console-shell'))
+    ))
         ->toThrow(AssertionFailedError::class);
 });
 
-test('the shared marker helper rejects duplicate same-name attributes', function (string $attribute): void {
-    $response = new TestResponse(new Response(
+test('the Blade marker lint rejects duplicate same-name attributes', function (string $attribute): void {
+    expect(fn () => assertBladeSourceTestMarkers(
         "<section {$attribute}=\"console-shell\" {$attribute}=\"second-shell\"></section>",
-    ));
-
-    expect(fn () => assertTestMarker($response, 'console-shell'))
+    ))
         ->toThrow(AssertionFailedError::class);
 })->with([
     'duplicate canonical data-testid' => ['data-testid'],
     'duplicate legacy data-test' => ['data-test'],
 ]);
 
-test('the shared marker helper rejects multiple marker attributes after a quoted greater-than sign', function (): void {
-    $response = new TestResponse(new Response(
-        '<section title="x > y" data-testid="console-shell" data-test="legacy-shell"></section>',
-    ));
+test('the marker instrument rejects balanced duplicate and malformed marker counts', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:1 has multiple data-testid/data-test marker attributes on one element.',
+        );
+})->with([
+    'canonical data-testid' => [
+        '<section data-testid=console-shell data-testid=second-shell></section>
+<i data-testid/=ghost></i>',
+    ],
+    'legacy data-test' => [
+        '<section data-test=console-shell data-test=second-shell></section>
+<i data-test/=ghost></i>',
+    ],
+]);
 
-    expect(fn () => assertTestMarker($response, 'console-shell'))
+test('the Blade marker lint rejects multiple marker attributes after a quoted greater-than sign', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(
+        '<section title="x > y" data-testid="console-shell" data-test="legacy-shell"></section>',
+    ))
         ->toThrow(AssertionFailedError::class);
+});
+
+test('the Blade marker lint recognizes exact attributes with whitespace quoted and unquoted values', function (): void {
+    assertBladeSourceTestMarkers(<<<'BLADE'
+<section data-testid = "console-shell"></section>
+<aside data-test='legacy-shell'></aside>
+<div data-testid=unquoted-shell></div>
+<nav data-testid-prefix="ignored" data-testing="ignored"></nav>
+BLADE);
+});
+
+test('the Blade marker lint ignores marker-like script comment and text content', function (): void {
+    assertBladeSourceTestMarkers(<<<'BLADE'
+<script>const marker = '<section data-testid="console-shell" data-test="legacy-shell"></section>';</script>
+<!-- <section data-testid="console-shell" data-test="legacy-shell"></section> -->
+{{-- <section data-testid="console-shell" data-test="legacy-shell"></section> --}}
+<p>data-testid="console-shell" data-test="legacy-shell"</p>
+BLADE);
+});
+
+test('the Blade marker lint accepts repeated markers on different elements', function (): void {
+    assertBladeSourceTestMarkers(
+        '<section data-testid="console-shell"></section><aside data-test="console-shell"></aside>',
+    );
+});
+
+test('every tracked Blade view has at most one marker attribute per element', function (): void {
+    $process = new Process([
+        'git',
+        'ls-files',
+        '--',
+        ':(glob)resources/views/**/*.blade.php',
+        ':(glob)**/resources/views/**/*.blade.php',
+    ]);
+    $process->mustRun();
+
+    $paths = array_values(array_filter(explode("\n", trim($process->getOutput()))));
+
+    expect($paths)->not->toBeEmpty();
+
+    foreach ($paths as $path) {
+        $source = file_get_contents(dirname(__DIR__, 2).DIRECTORY_SEPARATOR.$path);
+
+        expect($source)->toBeString();
+        assertBladeSourceTestMarkers($source, $path);
+    }
 });
 
 test('marker-like script text does not satisfy structural marker presence', function (): void {
