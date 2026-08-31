@@ -20,13 +20,13 @@
                     </flux:sidebar.item>
                 </flux:sidebar.group>
 
-                @if (auth()->user()?->is_admin)
+                @can('administer-sink')
                     <flux:sidebar.group :heading="__('Admin')" class="grid">
                         <flux:sidebar.item icon="users" :href="route('invitations')" :current="request()->routeIs('invitations')" wire:navigate>
                             {{ __('Invitations') }}
                         </flux:sidebar.item>
                     </flux:sidebar.group>
-                @endif
+                @endcan
             </flux:sidebar.nav>
 
             <flux:spacer />
