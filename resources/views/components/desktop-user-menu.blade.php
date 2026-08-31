@@ -15,12 +15,12 @@
         ->implode('');
 @endphp
 
-<flux:dropdown position="bottom" align="start">
+<flux:dropdown position="bottom" align="start" data-testid="desktop-user-menu">
     <flux:sidebar.profile
         :$name
         :$initials
         icon:trailing="chevrons-up-down"
-        data-test="sidebar-menu-button"
+        data-testid="desktop-user-menu-trigger"
     />
 
     <flux:menu>
@@ -38,7 +38,7 @@
         </div>
         <flux:menu.separator />
         <flux:menu.radio.group>
-            <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
+            <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate data-testid="desktop-user-menu-settings">
                 {{ __('Settings') }}
             </flux:menu.item>
             <form method="POST" action="{{ route('logout') }}" class="w-full">
@@ -48,7 +48,7 @@
                     type="submit"
                     icon="arrow-right-start-on-rectangle"
                     class="w-full cursor-pointer"
-                    data-test="logout-button"
+                    data-testid="desktop-user-menu-logout"
                 >
                     {{ __('Log out') }}
                 </flux:menu.item>

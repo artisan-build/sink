@@ -2,6 +2,8 @@
 
 use App\Http\Middleware\AuthenticateConsoleOrLocal;
 use App\Models\User;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleGuard;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleGuardConfiguration;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
@@ -9,6 +11,7 @@ use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use Carbon\CarbonImmutable;
 use Composer\InstalledVersions;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
@@ -18,7 +21,22 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Livewire\Drawer\Utils;
 use Livewire\LivewireManager;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Process\Process;
+
+final readonly class ConsoleLayoutActingPrincipalObserver
+{
+    public function __construct(private Closure $capture) {}
+
+    public function handle(Request $request, Closure $next): Response
+    {
+        $resolver = resolve(ActingPrincipalResolver::class);
+
+        ($this->capture)($resolver->resolve(), $resolver->resolve());
+
+        return $next($request);
+    }
+}
 
 beforeEach(function (): void {
     config([
@@ -57,15 +75,20 @@ test('a local Fortify user receives the Sink shell with zero Console chrome', fu
     $response
         ->assertSee('Local Sink Admin')
         ->assertSee('local-admin@example.test')
-        ->assertSee('Dashboard')
-        ->assertSee('Inbox')
-        ->assertSee('Invitations')
-        ->assertSee('Settings')
-        ->assertDontSee('data-bfc-console-chrome', false)
+        ->assertSeeHtml('data-testid="sidebar-dashboard"')
+        ->assertSeeHtml('data-testid="sidebar-inbox"')
+        ->assertSeeHtml('data-testid="sidebar-invitations"')
+        ->assertSeeHtml('data-testid="desktop-user-menu"')
+        ->assertSeeHtml('data-testid="desktop-user-menu-settings"')
+        ->assertSeeHtml('data-testid="desktop-user-menu-logout"')
+        ->assertSeeHtml('data-testid="mobile-user-menu"')
+        ->assertSeeHtml('data-testid="mobile-user-menu-settings"')
+        ->assertSeeHtml('data-testid="mobile-user-menu-logout"')
+        ->assertDontSeeHtml('data-bfc-console-chrome="1"')
         ->assertDontSee('/bfc/console/chrome.js', false);
 });
 
-test('a delegated session receives the same Sink shell with full Console attribution', function (): void {
+test('a delegated session receives bare Sink navigation with full Console attribution', function (): void {
     $actor = consoleLayoutActor(ConsoleRole::Member);
 
     $response = $this->withSession(consoleLayoutSession(
@@ -76,16 +99,77 @@ test('a delegated session receives the same Sink shell with full Console attribu
     ))->get(route('dashboard'))->assertOk();
 
     $response
-        ->assertSee('data-bfc-console-chrome="1"', false)
-        ->assertSee('data-bfc-console-role="admin"', false)
+        ->assertSeeHtml('data-bfc-console-chrome="1"')
+        ->assertSeeHtml('data-bfc-console-role="admin"')
         ->assertSee('Delegated Operator')
         ->assertSee('Acme Agency')
-        ->assertSee('via scalpels.test')
         ->assertSee('/bfc/console/chrome.js', false)
-        ->assertSee('Dashboard')
-        ->assertSee('Inbox')
-        ->assertSee('Invitations')
-        ->assertSee('Settings');
+        ->assertSeeHtml('data-testid="sidebar-dashboard"')
+        ->assertSeeHtml('data-testid="sidebar-inbox"')
+        ->assertSeeHtml('data-testid="sidebar-invitations"')
+        ->assertDontSeeHtml('data-testid="desktop-user-menu"')
+        ->assertDontSeeHtml('data-testid="desktop-user-menu-settings"')
+        ->assertDontSeeHtml('data-testid="desktop-user-menu-logout"')
+        ->assertDontSeeHtml('data-testid="mobile-user-menu"')
+        ->assertDontSeeHtml('data-testid="mobile-user-menu-settings"')
+        ->assertDontSeeHtml('data-testid="mobile-user-menu-logout"');
+});
+
+test('the production invitations route admits a local admin', function (): void {
+    $admin = consoleLayoutUser(name: 'Local Invitations Admin', email: 'local-invitations@example.test', isAdmin: true);
+
+    $this->actingAs($admin)
+        ->get(route('invitations'))
+        ->assertOk();
+});
+
+test('the production invitations route admits a delegated admin', function (): void {
+    $actor = consoleLayoutActor(ConsoleRole::Member);
+
+    $this->withSession(consoleLayoutSession($actor, ConsoleRole::Admin))
+        ->get(route('invitations'))
+        ->assertOk();
+});
+
+test('the production invitations route denies a delegated member if package session eviction leaves a local admin co-resident', function (): void {
+    $localAdmin = consoleLayoutUser(name: 'Local Invitations Decoy', email: 'local-invitations-decoy@example.test', isAdmin: true);
+    $actor = consoleLayoutActor(ConsoleRole::Admin);
+
+    $this->actingAs($localAdmin)
+        ->withSession(consoleLayoutSession($actor, ConsoleRole::Member))
+        ->get(route('invitations'))
+        ->assertForbidden();
+});
+
+test('the production dashboard resolves one delegated acting principal for downstream middleware', function (): void {
+    $actor = consoleLayoutActor(ConsoleRole::Member);
+    $observation = [];
+
+    app()->instance(
+        ConsoleLayoutActingPrincipalObserver::class,
+        new ConsoleLayoutActingPrincipalObserver(
+            function (ActingPrincipal $first, ActingPrincipal $second) use (&$observation): void {
+                $observation = [
+                    'identifier' => $first->identifier(),
+                    'delegated' => $first->delegated,
+                    'same_instance' => $first === $second,
+                ];
+            },
+        ),
+    );
+
+    Route::getRoutes()
+        ->getByName('dashboard')
+        ->middleware(ConsoleLayoutActingPrincipalObserver::class);
+
+    $this->withSession(consoleLayoutSession($actor, ConsoleRole::Admin))
+        ->get(route('dashboard'))
+        ->assertOk();
+
+    expect($observation)->not->toBeEmpty()
+        ->and($observation['identifier'] ?? null)->toBe($actor->getAuthIdentifier())
+        ->and($observation['delegated'] ?? null)->toBeTrue()
+        ->and($observation['same_instance'] ?? null)->toBeTrue();
 });
 
 test('delegated principal and chrome outrank a co-resident local admin without fallback', function (): void {
@@ -102,11 +186,11 @@ test('delegated principal and chrome outrank a co-resident local admin without f
         ->assertOk();
 
     $response
-        ->assertSee('data-bfc-console-role="member"', false)
+        ->assertSeeHtml('data-bfc-console-role="member"')
         ->assertSee('Delegated Member')
         ->assertDontSee('Local Admin Decoy')
         ->assertDontSee('local-decoy@example.test')
-        ->assertDontSee('Invitations');
+        ->assertDontSeeHtml('data-testid="sidebar-invitations"');
 });
 
 test('hostile delegated display values stay escaped in Console and Sink chrome', function (): void {

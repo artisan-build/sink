@@ -6,17 +6,17 @@
 
     <flux:sidebar.nav>
         <flux:sidebar.group :heading="__('Platform')" class="grid">
-            <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate>
+            <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate data-testid="sidebar-dashboard">
                 {{ __('Dashboard') }}
             </flux:sidebar.item>
-            <flux:sidebar.item icon="inbox" :href="route('sink.inbox')" :current="request()->routeIs('sink.*')" wire:navigate>
+            <flux:sidebar.item icon="inbox" :href="route('sink.inbox')" :current="request()->routeIs('sink.*')" wire:navigate data-testid="sidebar-inbox">
                 {{ __('Inbox') }}
             </flux:sidebar.item>
         </flux:sidebar.group>
 
         @can('administer-sink')
             <flux:sidebar.group :heading="__('Admin')" class="grid">
-                <flux:sidebar.item icon="users" :href="route('invitations')" :current="request()->routeIs('invitations')" wire:navigate>
+                <flux:sidebar.item icon="users" :href="route('invitations')" :current="request()->routeIs('invitations')" wire:navigate data-testid="sidebar-invitations">
                     {{ __('Invitations') }}
                 </flux:sidebar.item>
             </flux:sidebar.group>
@@ -35,7 +35,9 @@
         </flux:sidebar.item>
     </flux:sidebar.nav>
 
-    <x-desktop-user-menu class="hidden lg:block" :$name :$email :$initials />
+    @unless ($sinkActingPrincipal->delegatedSessionPresent())
+        <x-desktop-user-menu class="hidden lg:block" :$name :$email :$initials />
+    @endunless
 </flux:sidebar>
 
 <!-- Mobile User Menu -->
@@ -44,53 +46,55 @@
 
     <flux:spacer />
 
-    <flux:dropdown position="top" align="end">
-        <flux:profile
-            :$initials
-            icon-trailing="chevron-down"
-        />
+    @unless ($sinkActingPrincipal->delegatedSessionPresent())
+        <flux:dropdown position="top" align="end" data-testid="mobile-user-menu">
+            <flux:profile
+                :$initials
+                icon-trailing="chevron-down"
+            />
 
-        <flux:menu>
-            <flux:menu.radio.group>
-                <div class="p-0 text-sm font-normal">
-                    <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
-                        <flux:avatar
-                            :$name
-                            :$initials
-                        />
+            <flux:menu>
+                <flux:menu.radio.group>
+                    <div class="p-0 text-sm font-normal">
+                        <div class="flex items-center gap-2 px-1 py-1.5 text-start text-sm">
+                            <flux:avatar
+                                :$name
+                                :$initials
+                            />
 
-                        <div class="grid flex-1 text-start text-sm leading-tight">
-                            <flux:heading class="truncate">{{ $name }}</flux:heading>
-                            @if ($email !== null)
-                                <flux:text class="truncate">{{ $email }}</flux:text>
-                            @endif
+                            <div class="grid flex-1 text-start text-sm leading-tight">
+                                <flux:heading class="truncate">{{ $name }}</flux:heading>
+                                @if ($email !== null)
+                                    <flux:text class="truncate">{{ $email }}</flux:text>
+                                @endif
+                            </div>
                         </div>
                     </div>
-                </div>
-            </flux:menu.radio.group>
+                </flux:menu.radio.group>
 
-            <flux:menu.separator />
+                <flux:menu.separator />
 
-            <flux:menu.radio.group>
-                <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate>
-                    {{ __('Settings') }}
-                </flux:menu.item>
-            </flux:menu.radio.group>
+                <flux:menu.radio.group>
+                    <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate data-testid="mobile-user-menu-settings">
+                        {{ __('Settings') }}
+                    </flux:menu.item>
+                </flux:menu.radio.group>
 
-            <flux:menu.separator />
+                <flux:menu.separator />
 
-            <form method="POST" action="{{ route('logout') }}" class="w-full">
-                @csrf
-                <flux:menu.item
-                    as="button"
-                    type="submit"
-                    icon="arrow-right-start-on-rectangle"
-                    class="w-full cursor-pointer"
-                    data-test="logout-button"
-                >
-                    {{ __('Log out') }}
-                </flux:menu.item>
-            </form>
-        </flux:menu>
-    </flux:dropdown>
+                <form method="POST" action="{{ route('logout') }}" class="w-full">
+                    @csrf
+                    <flux:menu.item
+                        as="button"
+                        type="submit"
+                        icon="arrow-right-start-on-rectangle"
+                        class="w-full cursor-pointer"
+                        data-testid="mobile-user-menu-logout"
+                    >
+                        {{ __('Log out') }}
+                    </flux:menu.item>
+                </form>
+            </flux:menu>
+        </flux:dropdown>
+    @endunless
 </flux:header>

@@ -23,8 +23,8 @@ use Illuminate\Support\Str;
 
 /**
  * PR3 proves Sink's app authorization policy with authentic local and shipped
- * bfc-console sessions. It intentionally does not prove production Console
- * route or bfc::layout wiring; those remain the PR4 / §5-bis.2 deliverable.
+ * bfc-console sessions through synthetic probes. Production route and
+ * bfc::layout wiring are covered by ConsoleLayoutTest.
  */
 beforeEach(function (): void {
     expect((bool) config('built-for-cloud.console.enabled'))->toBeTrue()
