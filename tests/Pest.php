@@ -69,6 +69,22 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
 
     Assert::assertTrue($parsed, 'Failed asserting that the response contains parseable HTML.');
 
+    $normalizedHtml = $document->saveHTML();
+
+    Assert::assertIsString($normalizedHtml, 'Failed asserting that the parsed response can be serialized.');
+
+    foreach (['data-testid', 'data-test'] as $attribute) {
+        $attributePattern = '/\b'.preg_quote($attribute, '/').'\s*=/i';
+        $sourceAttributeCount = preg_match_all($attributePattern, $html);
+        $normalizedAttributeCount = preg_match_all($attributePattern, $normalizedHtml);
+
+        Assert::assertSame(
+            $sourceAttributeCount,
+            $normalizedAttributeCount,
+            "DOM parsing must preserve every [{$attribute}] source attribute.",
+        );
+    }
+
     $elementsWithDuplicateMarkers = 0;
     $markerCount = 0;
 

@@ -23,6 +23,18 @@ test('the shared marker helper rejects multiple marker attributes on one element
         ->toThrow(AssertionFailedError::class);
 });
 
+test('the shared marker helper rejects duplicate same-name attributes', function (string $attribute): void {
+    $response = new TestResponse(new Response(
+        "<section {$attribute}=\"console-shell\" {$attribute}=\"second-shell\"></section>",
+    ));
+
+    expect(fn () => assertTestMarker($response, 'console-shell'))
+        ->toThrow(AssertionFailedError::class);
+})->with([
+    'duplicate canonical data-testid' => ['data-testid'],
+    'duplicate legacy data-test' => ['data-test'],
+]);
+
 test('the shared marker helper rejects multiple marker attributes after a quoted greater-than sign', function (): void {
     $response = new TestResponse(new Response(
         '<section title="x > y" data-testid="console-shell" data-test="legacy-shell"></section>',
@@ -35,6 +47,17 @@ test('the shared marker helper rejects multiple marker attributes after a quoted
 test('marker-like script text does not satisfy structural marker presence', function (): void {
     $response = new TestResponse(new Response(
         '<script>const marker = \' data-testid="console-shell" \';</script>',
+    ));
+
+    assertTestMarker($response, 'console-shell', present: false);
+
+    expect(fn () => assertTestMarker($response, 'console-shell'))
+        ->toThrow(AssertionFailedError::class);
+});
+
+test('marker-like comment text does not satisfy structural marker presence', function (): void {
+    $response = new TestResponse(new Response(
+        '<!-- data-testid="console-shell" -->',
     ));
 
     assertTestMarker($response, 'console-shell', present: false);
