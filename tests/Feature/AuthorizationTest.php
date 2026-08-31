@@ -92,6 +92,20 @@ test('guests have no administrative standing', function (): void {
     expect(Gate::allows('administer-sink'))->toBeFalse();
 });
 
+test('with the Console disabled the ability still admits a local admin and denies a local member', function (bool $isAdmin): void {
+    config(['built-for-cloud.console.enabled' => false]);
+
+    $user = authorizationUser($isAdmin);
+    $this->actingAs($user);
+    $acting = resolve(ActingPrincipalResolver::class)->resolve();
+
+    expect($acting->delegated)->toBeFalse()
+        ->and(Gate::allows('administer-sink'))->toBe($isAdmin);
+})->with([
+    'positive local admin' => [true],
+    'decoy local member is denied' => [false],
+]);
+
 test('local route enforcement and every admin affordance share the ability', function (bool $isAdmin): void {
     $connection = (string) config('sink-server.database.connection');
 
