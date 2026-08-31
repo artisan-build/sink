@@ -270,6 +270,28 @@ test('a capped delegated session receives the exact structured response on a rea
         ]);
 });
 
+test('a refused or capped delegated full-page GET is terminal with no fallback to a co-resident local user', function (): void {
+    $localAdmin = consoleLayoutUser(name: 'Local Admin Fallback Decoy', email: 'local-fallback-decoy@example.test', isAdmin: true);
+    $actor = consoleLayoutActor(ConsoleRole::Admin);
+
+    $this->actingAs($localAdmin)
+        ->withSession(consoleLayoutSession(
+            $actor,
+            ConsoleRole::Admin,
+            issuedAt: CarbonImmutable::now()->subMinutes(121)->getTimestamp(),
+        ))
+        ->get(route('dashboard'))
+        ->assertUnauthorized()
+        ->assertHeader('BFC-Console-Reentry', '1')
+        ->assertExactJson([
+            'version' => 1,
+            'error' => 'console_reentry_required',
+            'reason' => 'assertion_age_cap',
+            'reentry_url' => 'https://scalpels.test/console/enter',
+            'return_to' => '/dashboard',
+        ]);
+});
+
 test('a Console-disabled production boot mounts neither delegated door nor chrome asset', function (): void {
     $process = new Process(
         [PHP_BINARY, 'artisan', 'route:list', '--json', '--path=bfc/console'],
