@@ -10,7 +10,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::connection('sink')->create('messages', function (Blueprint $table): void {
+        Schema::connection((string) config('sink-server.database.connection'))->create('messages', function (Blueprint $table): void {
             $table->id();
             $table->string('idempotency_key');
             $table->string('app')->index();
@@ -36,6 +36,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::connection('sink')->dropIfExists('messages');
+        Schema::connection((string) config('sink-server.database.connection'))->dropIfExists('messages');
     }
 };

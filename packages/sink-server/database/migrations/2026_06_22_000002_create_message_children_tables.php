@@ -10,7 +10,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::connection('sink')->create('message_recipients', function (Blueprint $table): void {
+        $schema = Schema::connection((string) config('sink-server.database.connection'));
+
+        $schema->create('message_recipients', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('message_id')->index()->constrained('messages')->cascadeOnDelete();
             $table->string('kind');
@@ -18,21 +20,21 @@ return new class extends Migration
             $table->string('name')->nullable();
         });
 
-        Schema::connection('sink')->create('message_headers', function (Blueprint $table): void {
+        $schema->create('message_headers', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('message_id')->index()->constrained('messages')->cascadeOnDelete();
             $table->string('name');
             $table->text('value');
         });
 
-        Schema::connection('sink')->create('message_links', function (Blueprint $table): void {
+        $schema->create('message_links', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('message_id')->index()->constrained('messages')->cascadeOnDelete();
             $table->text('url');
             $table->string('label')->nullable();
         });
 
-        Schema::connection('sink')->create('message_attachments', function (Blueprint $table): void {
+        $schema->create('message_attachments', function (Blueprint $table): void {
             $table->id();
             $table->foreignId('message_id')->index()->constrained('messages')->cascadeOnDelete();
             $table->string('filename');
@@ -44,9 +46,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::connection('sink')->dropIfExists('message_attachments');
-        Schema::connection('sink')->dropIfExists('message_links');
-        Schema::connection('sink')->dropIfExists('message_headers');
-        Schema::connection('sink')->dropIfExists('message_recipients');
+        $schema = Schema::connection((string) config('sink-server.database.connection'));
+
+        $schema->dropIfExists('message_attachments');
+        $schema->dropIfExists('message_links');
+        $schema->dropIfExists('message_headers');
+        $schema->dropIfExists('message_recipients');
     }
 };

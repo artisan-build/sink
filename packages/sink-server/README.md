@@ -45,8 +45,8 @@ Useful environment variables:
 - `SINK_ROUTE_PREFIX` defaults to empty.
 - `SINK_QUEUE_CONNECTION` selects the parse queue connection.
 - `SINK_DISK` falls back to `FILESYSTEM_DISK`, then `local`.
-- `SINK_DB_*` configures an explicit Postgres `sink` connection. When omitted, `sink` mirrors the
-  app default database connection so local sqlite and CI migrations keep working.
+- `SINK_DB_*` configures an explicit Postgres `sink` connection. When omitted, messages use the app's
+  default connection instance so domain and audit writes share its transactions.
 - `SINK_RETENTION_DAYS` defaults to `7`.
 - `SINK_MAX_MESSAGES` optionally caps retained message count.
 - `SINK_MAX_TOTAL_BYTES` optionally caps retained raw MIME bytes.

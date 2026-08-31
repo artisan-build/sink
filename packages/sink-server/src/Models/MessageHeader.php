@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Models;
 
 use ArtisanBuild\SinkServer\Database\Factories\MessageHeaderFactory;
+use ArtisanBuild\SinkServer\Models\Concerns\UsesSinkConnection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,9 +16,9 @@ final class MessageHeader extends Model
     /** @use HasFactory<MessageHeaderFactory> */
     use HasFactory;
 
-    public $timestamps = false;
+    use UsesSinkConnection;
 
-    protected $connection = 'sink';
+    public $timestamps = false;
 
     protected $guarded = [];
 

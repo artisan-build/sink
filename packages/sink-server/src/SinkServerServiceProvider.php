@@ -71,12 +71,14 @@ final class SinkServerServiceProvider extends ServiceProvider
         $sinkUsername = config('sink-server.database.username');
 
         if (blank($sinkDatabase) && blank($sinkHost) && blank($sinkUsername)) {
-            config(['database.connections.sink' => config('database.connections.'.config('database.default'))]);
+            config(['sink-server.database.connection' => config('database.default')]);
 
             return;
         }
 
-        config(['database.connections.sink' => [
+        $connection = (string) config('sink-server.database.connection');
+
+        config(["database.connections.{$connection}" => [
             'driver' => 'pgsql',
             'host' => config('sink-server.database.host'),
             'port' => config('sink-server.database.port'),
