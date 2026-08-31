@@ -251,12 +251,14 @@ function consoleLayoutSession(
 
 function ensureConsoleLayoutMessagesTable(): void
 {
-    if (Schema::connection('sink')->hasTable('messages')) {
+    $connection = (string) config('sink-server.database.connection');
+
+    if (Schema::connection($connection)->hasTable('messages')) {
         return;
     }
 
     Artisan::call('migrate', [
-        '--database' => 'sink',
+        '--database' => $connection,
         '--path' => 'packages/sink-server/database/migrations',
         '--realpath' => true,
     ]);
