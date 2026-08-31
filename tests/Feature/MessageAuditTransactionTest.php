@@ -19,7 +19,7 @@ test('message and audit writes share transaction boundaries', function (): void 
     try {
         DB::transaction(function () use ($actor): void {
             createTransactionTestMessage('rolled-back-message');
-            app(AppActionRecorder::class)->record(
+            resolve(AppActionRecorder::class)->record(
                 action: ConsoleAction::ConsoleEntered,
                 actor: $actor,
                 reason: AppActionReason::Requested,
@@ -37,7 +37,7 @@ test('message and audit writes share transaction boundaries', function (): void 
 
     DB::transaction(function () use ($actor): void {
         createTransactionTestMessage('committed-message');
-        app(AppActionRecorder::class)->record(
+        resolve(AppActionRecorder::class)->record(
             action: ConsoleAction::ConsoleEntered,
             actor: $actor,
             reason: AppActionReason::Requested,
