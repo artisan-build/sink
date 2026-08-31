@@ -23,8 +23,8 @@ use Illuminate\Support\Str;
 
 /**
  * PR3 proves Sink's app authorization policy with authentic local and shipped
- * bfc-console sessions. It intentionally does not prove production Console
- * route or bfc::layout wiring; those remain the PR4 / §5-bis.2 deliverable.
+ * bfc-console sessions through synthetic probes. Production route and
+ * bfc::layout wiring are covered by ConsoleLayoutTest.
  */
 beforeEach(function (): void {
     expect((bool) config('built-for-cloud.console.enabled'))->toBeTrue()
@@ -113,18 +113,21 @@ test('local route enforcement and every admin affordance share the ability', fun
     $inbox = $this->get(route('sink.inbox'))->assertOk();
     $detail = $this->get(route('sink.message', $message))->assertOk();
 
+    $inbox->assertSee($message->subject);
+    $detail->assertSee($message->subject);
+
     if ($isAdmin) {
-        $dashboard->assertSee('Invitations');
-        $inbox->assertSee('Purge filtered scope');
-        $detail->assertSee('Delete message');
+        assertTestMarker($dashboard, 'sidebar-invitations');
+        assertTestMarker($inbox, 'inbox-admin-purge');
+        assertTestMarker($detail, 'message-admin-delete');
 
         $this->get(route('invitations'))->assertOk();
         $this->delete(route('sink.inbox.purge'))->assertUnprocessable();
         $this->delete(route('sink.message.destroy', $message))->assertRedirect(route('sink.inbox'));
     } else {
-        $dashboard->assertDontSee('Invitations');
-        $inbox->assertDontSee('Purge filtered scope');
-        $detail->assertDontSee('Delete message');
+        assertTestMarker($dashboard, 'sidebar-invitations', present: false);
+        assertTestMarker($inbox, 'inbox-admin-purge', present: false);
+        assertTestMarker($detail, 'message-admin-delete', present: false);
 
         $this->get(route('invitations'))->assertForbidden();
         $this->delete(route('sink.inbox.purge'))->assertForbidden();

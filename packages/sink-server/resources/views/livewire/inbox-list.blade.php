@@ -28,7 +28,7 @@
                 <input type="hidden" name="subject" value="{{ $subject }}">
                 <input type="hidden" name="receivedFrom" value="{{ $receivedFrom }}">
                 <input type="hidden" name="receivedTo" value="{{ $receivedTo }}">
-                <flux:button type="submit" variant="danger" size="sm">{{ __('Purge filtered scope') }}</flux:button>
+                <flux:button type="submit" variant="danger" size="sm" data-testid="inbox-admin-purge">{{ __('Purge filtered scope') }}</flux:button>
             </form>
         @endcan
     </flux:card>
