@@ -37,9 +37,11 @@ beforeEach(function (): void {
         'queue.default' => 'sync',
     ]);
 
-    if (! Schema::connection('sink')->hasTable('messages')) {
+    $connection = (string) config('sink-server.database.connection');
+
+    if (! Schema::connection($connection)->hasTable('messages')) {
         Artisan::call('migrate', [
-            '--database' => 'sink',
+            '--database' => $connection,
             '--path' => 'packages/sink-server/database/migrations',
             '--realpath' => true,
         ]);
@@ -148,7 +150,7 @@ test('headline collection counts on the sink connection without loading message 
         'subject_ref' => 'query-shape-console-vitals-reader',
         'abilities' => [OperatorAbility::MetadataRead->value],
     ]);
-    $sink = DB::connection('sink');
+    $sink = DB::connection((string) config('sink-server.database.connection'));
     $sink->flushQueryLog();
     $sink->enableQueryLog();
 
