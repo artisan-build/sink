@@ -154,6 +154,75 @@ BLADE],
     'Blade comment' => ['{{-- <section data-testid=one data-test=two></section>'],
 ]);
 
+test('the Blade marker lint fails closed on an unterminated HTML comment', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(
+        '<!-- <section data-testid=one data-test=two></section>',
+    ))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:1 has an unterminated HTML comment.',
+        );
+});
+
+test('the Blade marker lint fails closed on unterminated raw text and RCDATA elements', function (string $tag, string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            "Blade source:1 has an unterminated {$tag} element.",
+        );
+})->with([
+    'script raw text' => ['script', '<script>const markup = "<section data-testid=one data-test=two></section>";'],
+    'style raw text' => ['style', '<style>.marker::before { content: "<section data-testid=one data-test=two></section>"; }'],
+    'textarea RCDATA' => ['textarea', '<textarea><section data-testid=one data-test=two></section>'],
+    'title RCDATA' => ['title', '<title><section data-testid=one data-test=two></section>'],
+]);
+
+test('escaped Blade delimiters do not mask a later real marker tag', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:2 has multiple data-testid/data-test marker attributes on one element.',
+        );
+})->with([
+    'escaped Blade echo' => [<<<'BLADE'
+<script>const template = "@{{ \"}}\"";</script>
+<section data-testid=one data-test=two></section>
+{{ $later }}
+BLADE],
+    'escaped raw Blade echo' => [<<<'BLADE'
+<script>const template = "@{!! \"!!}\"";</script>
+<section data-testid=one data-test=two></section>
+{!! $later !!}
+BLADE],
+]);
+
+test('the Blade marker lint ignores native PHP block and line comment content', function (string $source): void {
+    expect(fn () => assertBladeSourceTestMarkers($source))
+        ->not->toThrow(AssertionFailedError::class);
+})->with([
+    'block comment containing a close tag' => ['<?php /* ?> */ $markup = "<section data-testid=one data-test=two></section>"; ?>'],
+    'slash line comment' => [<<<'BLADE'
+<?php // <section data-testid=one data-test=two></section>
+$markup = "<section data-testid=one data-test=two></section>";
+?>
+BLADE],
+    'hash line comment' => [<<<'BLADE'
+<?php # <section data-testid=one data-test=two></section>
+$markup = "<section data-testid=one data-test=two></section>";
+?>
+BLADE],
+]);
+
+test('a native PHP close tag ends a line comment and exposes following HTML', function (): void {
+    expect(fn () => assertBladeSourceTestMarkers(
+        '<?php // closes here ?> <section data-testid=one data-test=two></section>',
+    ))
+        ->toThrow(
+            AssertionFailedError::class,
+            'Blade source:1 has multiple data-testid/data-test marker attributes on one element.',
+        );
+});
+
 test('the Blade marker lint requires exact raw text closing tag names', function (string $tag): void {
     expect(fn () => assertBladeSourceTestMarkers(
         "<{$tag}><section data-testid=one data-test=two></{$tag}-extra><section data-testid=one data-test=two></{$tag}>",

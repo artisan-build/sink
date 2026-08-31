@@ -128,6 +128,17 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
 
         return null;
     };
+    $findNativePhpEnd = static function (string $value, int $offset): ?int {
+        foreach (token_get_all(substr($value, $offset)) as $token) {
+            $offset += strlen(is_array($token) ? $token[1] : $token);
+
+            if (is_array($token) && $token[0] === T_CLOSE_TAG) {
+                return $offset;
+            }
+        }
+
+        return null;
+    };
     $requireContextEnd = static function (?int $contextEnd, int $contextStart) use ($source, $sourceName): int {
         if ($contextEnd === null) {
             $line = substr_count($source, "\n", 0, $contextStart) + 1;
@@ -145,7 +156,11 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
             ['{!!', '!!}', true],
             ['{{', '}}', true],
         ] as [$openingDelimiter, $closingDelimiter, $quoteAware]) {
-            if (substr_compare($source, $openingDelimiter, $contextOffset, strlen($openingDelimiter)) !== 0) {
+            $isEscapedEcho = $openingDelimiter !== '{{--'
+                && $contextOffset > 0
+                && $source[$contextOffset - 1] === '@';
+
+            if ($isEscapedEcho || substr_compare($source, $openingDelimiter, $contextOffset, strlen($openingDelimiter)) !== 0) {
                 continue;
             }
 
@@ -163,7 +178,7 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
         }
 
         if (substr_compare($source, '<?', $contextOffset, 2) === 0) {
-            $contextEnd = $findUnquotedDelimiterEnd($source, $contextOffset + 2, '?>');
+            $contextEnd = $findNativePhpEnd($source, $contextOffset);
             $contextEnd = $requireContextEnd($contextEnd, $contextOffset);
             $maskSourceRange($contextOffset, $contextEnd);
             $contextOffset = $contextEnd;
@@ -234,7 +249,14 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
     while (($tagStart = strpos($source, '<', $offset)) !== false) {
         if (substr_compare($source, '<!--', $tagStart, 4) === 0) {
             $commentEnd = strpos($source, '-->', $tagStart + 4);
-            $offset = $commentEnd === false ? $sourceLength : $commentEnd + 3;
+
+            if ($commentEnd === false) {
+                $line = substr_count($source, "\n", 0, $tagStart) + 1;
+
+                Assert::fail("{$sourceName}:{$line} has an unterminated HTML comment.");
+            }
+
+            $offset = $commentEnd + 3;
 
             continue;
         }
@@ -360,7 +382,7 @@ function assertBladeSourceTestMarkers(string $source, string $sourceName = 'Blad
             );
 
             if ($closingTagResult !== 1) {
-                break;
+                Assert::fail("{$sourceName}:{$line} has an unterminated {$tagName} element.");
             }
 
             $offset = $closingTagMatch[0][1] + strlen($closingTagMatch[0][0]);
