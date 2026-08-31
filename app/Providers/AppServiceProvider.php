@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Http\Middleware\AuthenticateConsoleOrLocal;
 use App\Models\User;
 use App\SinkCredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
@@ -9,11 +10,14 @@ use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
 use ArtisanBuild\BuiltForCloud\Contracts\CredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\OffboardedSubject;
 use Carbon\CarbonImmutable;
+use Illuminate\Contracts\View\View as ViewContract;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\View;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Livewire\Livewire;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -33,6 +37,19 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureAuthorization();
+        $this->configureAuthenticatedLayout();
+    }
+
+    private function configureAuthenticatedLayout(): void
+    {
+        Livewire::addPersistentMiddleware(AuthenticateConsoleOrLocal::class);
+
+        View::composer('bfc::layout', function (ViewContract $view): void {
+            $view->with(
+                'sinkActingPrincipal',
+                $this->app->make(ActingPrincipalResolver::class)->resolve(),
+            );
+        });
     }
 
     private function configureAuthorization(): void

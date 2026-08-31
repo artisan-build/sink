@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 return [
     'route_prefix' => env('SINK_ROUTE_PREFIX', ''),
+    'ui_middleware' => ['web', 'auth', 'verified', 'bfc.auth'],
     'queue' => env('SINK_QUEUE_CONNECTION'),
     'disk' => env('SINK_DISK', env('FILESYSTEM_DISK', 'local')),
     'database' => [

@@ -42,7 +42,7 @@ final class SinkServerServiceProvider extends ServiceProvider
             ->group(__DIR__.'/../routes/sink-server.php');
 
         Route::prefix((string) config('sink-server.route_prefix', ''))
-            ->middleware(['web', 'auth', 'verified', 'bfc.auth'])
+            ->middleware((array) config('sink-server.ui_middleware'))
             ->group(__DIR__.'/../routes/sink-server-ui.php');
 
         $this->app->booted(function (): void {
