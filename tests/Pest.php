@@ -54,16 +54,38 @@ expect()->extend('toBeOne', fn () => $this->toBe(1));
 function assertTestMarker(TestResponse $response, string $marker, bool $present = true): void
 {
     $html = (string) $response->getContent();
-    $elements = [];
+    $document = new DOMDocument;
+    $previousErrorHandling = libxml_use_internal_errors(true);
+
+    try {
+        $parsed = $document->loadHTML(
+            $html,
+            LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_COMPACT,
+        );
+    } finally {
+        libxml_clear_errors();
+        libxml_use_internal_errors($previousErrorHandling);
+    }
+
+    Assert::assertTrue($parsed, 'Failed asserting that the response contains parseable HTML.');
+
     $elementsWithDuplicateMarkers = 0;
+    $markerCount = 0;
 
-    preg_match_all('/<[^>]+>/', $html, $elements);
+    foreach ($document->getElementsByTagName('*') as $element) {
+        $hasCanonicalMarker = $element->hasAttribute('data-testid');
+        $hasLegacyMarker = $element->hasAttribute('data-test');
 
-    foreach ($elements[0] ?? [] as $element) {
-        $attributeCount = preg_match_all('/\sdata-test(?:id)?\s*=/', $element);
-
-        if ($attributeCount > 1) {
+        if ($hasCanonicalMarker && $hasLegacyMarker) {
             $elementsWithDuplicateMarkers++;
+        }
+
+        if ($hasCanonicalMarker && $element->getAttribute('data-testid') === $marker) {
+            $markerCount++;
+        }
+
+        if ($hasLegacyMarker && $element->getAttribute('data-test') === $marker) {
+            $markerCount++;
         }
     }
 
@@ -71,11 +93,6 @@ function assertTestMarker(TestResponse $response, string $marker, bool $present 
         0,
         $elementsWithDuplicateMarkers,
         'An element may carry only one data-testid/data-test marker attribute.',
-    );
-
-    $markerCount = preg_match_all(
-        '/\s(?:data-testid|data-test)\s*=\s*(["\'])'.preg_quote($marker, '/').'\1(?=\s|\/?>)/',
-        $html,
     );
 
     if ($present) {

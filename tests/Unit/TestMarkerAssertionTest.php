@@ -22,3 +22,31 @@ test('the shared marker helper rejects multiple marker attributes on one element
     expect(fn () => assertTestMarker($response, 'console-shell'))
         ->toThrow(AssertionFailedError::class);
 });
+
+test('the shared marker helper rejects multiple marker attributes after a quoted greater-than sign', function (): void {
+    $response = new TestResponse(new Response(
+        '<section title="x > y" data-testid="console-shell" data-test="legacy-shell"></section>',
+    ));
+
+    expect(fn () => assertTestMarker($response, 'console-shell'))
+        ->toThrow(AssertionFailedError::class);
+});
+
+test('marker-like script text does not satisfy structural marker presence', function (): void {
+    $response = new TestResponse(new Response(
+        '<script>const marker = \' data-testid="console-shell" \';</script>',
+    ));
+
+    assertTestMarker($response, 'console-shell', present: false);
+
+    expect(fn () => assertTestMarker($response, 'console-shell'))
+        ->toThrow(AssertionFailedError::class);
+});
+
+test('the shared marker helper accepts repeated markers on different elements', function (): void {
+    $response = new TestResponse(new Response(
+        '<section data-testid="console-shell"></section><aside data-test="console-shell"></aside>',
+    ));
+
+    assertTestMarker($response, 'console-shell');
+});
