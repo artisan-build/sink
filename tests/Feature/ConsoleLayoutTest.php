@@ -29,9 +29,9 @@ beforeEach(function (): void {
 
 test('production roots use the one BfC layout and dual-principal middleware', function (): void {
     $dashboard = Route::getRoutes()->getByName('dashboard');
-    $dashboardMiddleware = app('router')->gatherRouteMiddleware($dashboard);
-    $inboxMiddleware = app('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
-    $invitationsMiddleware = app('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('invitations'));
+    $dashboardMiddleware = resolve('router')->gatherRouteMiddleware($dashboard);
+    $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
+    $invitationsMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('invitations'));
 
     expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.6.1')
         ->and(InstalledVersions::getReference('artisan-build/built-for-cloud'))
@@ -152,7 +152,7 @@ test('a capped delegated session receives the exact structured response on a rea
         issuedAt: CarbonImmutable::now()->subMinutes(121)->getTimestamp(),
     ));
 
-    $this->postJson(app(LivewireManager::class)->getUpdateUri(), [
+    $this->postJson(resolve(LivewireManager::class)->getUpdateUri(), [
         'components' => [[
             'snapshot' => json_encode($snapshot, JSON_THROW_ON_ERROR),
             'updates' => [],
