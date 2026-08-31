@@ -19,7 +19,7 @@
             <flux:input wire:model.live="receivedTo" :label="__('Received to')" type="date" />
         </div>
 
-        @if (auth()->user()?->is_admin)
+        @can('administer-sink')
             <form method="POST" action="{{ route('sink.inbox.purge') }}" onsubmit="return confirm('{{ __('Purge all messages matching the current non-empty filters?') }}')">
                 @csrf
                 @method('DELETE')
@@ -30,7 +30,7 @@
                 <input type="hidden" name="receivedTo" value="{{ $receivedTo }}">
                 <flux:button type="submit" variant="danger" size="sm">{{ __('Purge filtered scope') }}</flux:button>
             </form>
-        @endif
+        @endcan
     </flux:card>
 
     <flux:card>

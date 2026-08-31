@@ -12,7 +12,7 @@ Route::middleware(['auth', 'verified'])->group(function (): void {
     Route::view('dashboard', 'dashboard')->name('dashboard');
 
     Route::livewire('admin/invitations', Invitations::class)
-        ->middleware('bfc.admin')
+        ->middleware('can:administer-sink')
         ->name('invitations');
 });
 
