@@ -75,17 +75,26 @@ test('a local Fortify user receives the Sink shell with zero Console chrome', fu
     $response
         ->assertSee('Local Sink Admin')
         ->assertSee('local-admin@example.test')
-        ->assertSeeHtml('data-testid="sidebar-dashboard"')
-        ->assertSeeHtml('data-testid="sidebar-inbox"')
-        ->assertSeeHtml('data-testid="sidebar-invitations"')
-        ->assertSeeHtml('data-testid="desktop-user-menu"')
-        ->assertSeeHtml('data-testid="desktop-user-menu-settings"')
-        ->assertSeeHtml('data-testid="desktop-user-menu-logout"')
-        ->assertSeeHtml('data-testid="mobile-user-menu"')
-        ->assertSeeHtml('data-testid="mobile-user-menu-settings"')
-        ->assertSeeHtml('data-testid="mobile-user-menu-logout"')
         ->assertDontSeeHtml('data-bfc-console-chrome="1"')
         ->assertDontSee('/bfc/console/chrome.js', false);
+
+    assertTestMarker($response, 'sidebar-dashboard');
+    assertTestMarker($response, 'sidebar-inbox');
+    assertTestMarker($response, 'sidebar-invitations');
+    assertTestMarker($response, 'desktop-user-menu');
+    assertTestMarker($response, 'desktop-user-menu-settings');
+    assertTestMarker($response, 'desktop-user-menu-logout');
+    assertTestMarker($response, 'mobile-user-menu');
+    assertTestMarker($response, 'mobile-user-menu-settings');
+    assertTestMarker($response, 'mobile-user-menu-logout');
+
+    $desktopMenu = [];
+    preg_match('/<ui-dropdown\b(?=[^>]*\bdata-testid="desktop-user-menu")[^>]*>/', (string) $response->getContent(), $desktopMenu);
+    $desktopMenuClasses = [];
+    preg_match('/\bclass="([^"]*)"/', $desktopMenu[0] ?? '', $desktopMenuClasses);
+
+    expect(preg_split('/\s+/', trim($desktopMenuClasses[1] ?? '')))
+        ->toContain('hidden', 'lg:block');
 });
 
 test('a delegated session receives bare Sink navigation with full Console attribution', function (): void {
@@ -103,16 +112,17 @@ test('a delegated session receives bare Sink navigation with full Console attrib
         ->assertSeeHtml('data-bfc-console-role="admin"')
         ->assertSee('Delegated Operator')
         ->assertSee('Acme Agency')
-        ->assertSee('/bfc/console/chrome.js', false)
-        ->assertSeeHtml('data-testid="sidebar-dashboard"')
-        ->assertSeeHtml('data-testid="sidebar-inbox"')
-        ->assertSeeHtml('data-testid="sidebar-invitations"')
-        ->assertDontSeeHtml('data-testid="desktop-user-menu"')
-        ->assertDontSeeHtml('data-testid="desktop-user-menu-settings"')
-        ->assertDontSeeHtml('data-testid="desktop-user-menu-logout"')
-        ->assertDontSeeHtml('data-testid="mobile-user-menu"')
-        ->assertDontSeeHtml('data-testid="mobile-user-menu-settings"')
-        ->assertDontSeeHtml('data-testid="mobile-user-menu-logout"');
+        ->assertSee('/bfc/console/chrome.js', false);
+
+    assertTestMarker($response, 'sidebar-dashboard');
+    assertTestMarker($response, 'sidebar-inbox');
+    assertTestMarker($response, 'sidebar-invitations');
+    assertTestMarker($response, 'desktop-user-menu', present: false);
+    assertTestMarker($response, 'desktop-user-menu-settings', present: false);
+    assertTestMarker($response, 'desktop-user-menu-logout', present: false);
+    assertTestMarker($response, 'mobile-user-menu', present: false);
+    assertTestMarker($response, 'mobile-user-menu-settings', present: false);
+    assertTestMarker($response, 'mobile-user-menu-logout', present: false);
 });
 
 test('the production invitations route admits a local admin', function (): void {
@@ -131,7 +141,7 @@ test('the production invitations route admits a delegated admin', function (): v
         ->assertOk();
 });
 
-test('the production invitations route denies a delegated member if package session eviction leaves a local admin co-resident', function (): void {
+test('the production invitations route denies a delegated member if bfc#56 session eviction is skipped', function (): void {
     $localAdmin = consoleLayoutUser(name: 'Local Invitations Decoy', email: 'local-invitations-decoy@example.test', isAdmin: true);
     $actor = consoleLayoutActor(ConsoleRole::Admin);
 
@@ -189,8 +199,9 @@ test('delegated principal and chrome outrank a co-resident local admin without f
         ->assertSeeHtml('data-bfc-console-role="member"')
         ->assertSee('Delegated Member')
         ->assertDontSee('Local Admin Decoy')
-        ->assertDontSee('local-decoy@example.test')
-        ->assertDontSeeHtml('data-testid="sidebar-invitations"');
+        ->assertDontSee('local-decoy@example.test');
+
+    assertTestMarker($response, 'sidebar-invitations', present: false);
 });
 
 test('hostile delegated display values stay escaped in Console and Sink chrome', function (): void {

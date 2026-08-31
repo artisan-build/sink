@@ -10,7 +10,7 @@
             <form method="POST" action="{{ route('sink.message.destroy', $message) }}" onsubmit="return confirm('{{ __('Delete this message and its stored blobs?') }}')">
                 @csrf
                 @method('DELETE')
-                <flux:button type="submit" variant="danger">{{ __('Delete message') }}</flux:button>
+                <flux:button type="submit" variant="danger" data-testid="message-admin-delete">{{ __('Delete message') }}</flux:button>
             </form>
         @endcan
     </div>

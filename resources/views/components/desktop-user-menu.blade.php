@@ -15,7 +15,7 @@
         ->implode('');
 @endphp
 
-<flux:dropdown position="bottom" align="start" data-testid="desktop-user-menu">
+<flux:dropdown {{ $attributes }} position="bottom" align="start" data-testid="desktop-user-menu">
     <flux:sidebar.profile
         :$name
         :$initials

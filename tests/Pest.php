@@ -1,6 +1,9 @@
 <?php
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Assert;
+use Symfony\Component\HttpFoundation\Response;
 use Tests\TestCase;
 
 /*
@@ -42,7 +45,44 @@ expect()->extend('toBeOne', fn () => $this->toBe(1));
 |
 */
 
-function something(): void
+/**
+ * Assert an exact canonical or legacy structural marker and reject elements
+ * carrying multiple marker attributes.
+ *
+ * @param  TestResponse<Response>  $response
+ */
+function assertTestMarker(TestResponse $response, string $marker, bool $present = true): void
 {
-    // ..
+    $html = (string) $response->getContent();
+    $elements = [];
+    $elementsWithDuplicateMarkers = 0;
+
+    preg_match_all('/<[^>]+>/', $html, $elements);
+
+    foreach ($elements[0] ?? [] as $element) {
+        $attributeCount = preg_match_all('/\sdata-test(?:id)?\s*=/', $element);
+
+        if ($attributeCount > 1) {
+            $elementsWithDuplicateMarkers++;
+        }
+    }
+
+    Assert::assertSame(
+        0,
+        $elementsWithDuplicateMarkers,
+        'An element may carry only one data-testid/data-test marker attribute.',
+    );
+
+    $markerCount = preg_match_all(
+        '/\s(?:data-testid|data-test)\s*=\s*(["\'])'.preg_quote($marker, '/').'\1(?=\s|\/?>)/',
+        $html,
+    );
+
+    if ($present) {
+        Assert::assertGreaterThan(0, $markerCount, "Failed asserting that marker [{$marker}] is present.");
+
+        return;
+    }
+
+    Assert::assertSame(0, $markerCount, "Failed asserting that marker [{$marker}] is absent.");
 }
