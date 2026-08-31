@@ -3,8 +3,10 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\SinkCredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
+use ArtisanBuild\BuiltForCloud\Contracts\CredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\OffboardedSubject;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
@@ -21,7 +23,7 @@ class AppServiceProvider extends ServiceProvider
     #[\Override]
     public function register(): void
     {
-        //
+        $this->app->bind(CredentialDeclaration::class, SinkCredentialDeclaration::class);
     }
 
     /**
