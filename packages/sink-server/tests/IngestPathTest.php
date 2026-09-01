@@ -5,9 +5,11 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
+use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Jobs\ParseMessage;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
+use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
@@ -126,6 +128,25 @@ it('parses metadata links and attachments without persisting body text', functio
     ];
 
     expect(implode(' ', $persisted))->not->toContain('Secret body phrase');
+});
+
+it('captures parser-created attachments when deleting after a completed parse', function (): void {
+    $response = $this->postJson(
+        '/ingest',
+        envelopePayload((string) Str::ulid(), multipartMime()),
+        ['Authorization' => 'Bearer test-token'],
+    )->assertAccepted();
+
+    (new ParseMessage((int) $response->json('id')))->handle();
+
+    $message = Message::query()->with('attachments')->findOrFail((int) $response->json('id'));
+    $attachment = $message->attachments->sole();
+
+    expect(app(DeleteMessage::class)($message))->toBe(1)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
 });
 
 it('rejects non ulid idempotency keys before storage or database writes', function (string $idempotencyKey): void {

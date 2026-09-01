@@ -11,6 +11,7 @@ use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
+use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
@@ -273,6 +274,7 @@ it('rolls the MCP database purge back when audit recording fails', function (): 
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+    expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
     Storage::disk((string) config('sink-server.disk'))->assertExists('raw/alpha/secret.eml');
     Storage::disk((string) config('sink-server.disk'))->assertExists('attachments/alpha/secret/guide.txt');
 });

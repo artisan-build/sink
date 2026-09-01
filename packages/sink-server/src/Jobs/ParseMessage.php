@@ -27,8 +27,16 @@ final class ParseMessage implements ShouldQueue
 
     public function handle(): void
     {
-        /** @var SinkMessage $message */
-        $message = SinkMessage::query()->with(['recipients', 'headers', 'links', 'attachments'])->findOrFail($this->messageId);
+        (new SinkMessage)->getConnection()->transaction(function (): void {
+            /** @var SinkMessage $message */
+            $message = SinkMessage::query()->whereKey($this->messageId)->lockForUpdate()->firstOrFail();
+
+            $this->parse($message);
+        });
+    }
+
+    private function parse(SinkMessage $message): void
+    {
         $disk = Storage::disk((string) config('sink-server.disk'));
         $raw = $disk->get($message->raw_object_key);
         $parsed = MimeMessage::from($raw, false);

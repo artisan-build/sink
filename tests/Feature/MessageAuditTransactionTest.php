@@ -17,9 +17,11 @@ use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
+use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -49,6 +51,10 @@ test('the real UI delete route records exactly one local-user event and ledger r
 
         Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
         Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
+        expect(MessageBlobCleanupIntent::query()->pluck('object_key')->sort()->values()->all())->toBe([
+            $attachment->object_key,
+            $message->raw_object_key,
+        ]);
     });
 
     $event = AppActionEvent::query()->sole();
@@ -72,6 +78,7 @@ test('the real UI delete route records exactly one local-user event and ledger r
 
     Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
     Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
+    expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
 });
 
 test('the real UI purge route records one delegated event for the whole purge', function (): void {
@@ -156,7 +163,8 @@ test('a forced recorder failure retains the UI message row and blobs on the shar
         ->and((new Message)->getConnection()->getPdo())->toBe(DB::connection()->getPdo())
         ->and(Message::query()->whereKey($message->getKey())->exists())->toBeTrue()
         ->and(AppActionEvent::query()->count())->toBe(1)
-        ->and(AppActionOutboxEntry::query()->count())->toBe(1);
+        ->and(AppActionOutboxEntry::query()->count())->toBe(1)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
 
     Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
     Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
@@ -187,11 +195,54 @@ test('a stale route-bound delete returns zero and emits no successful action eve
     expect($competingDeleteCount)->toBe(1)
         ->and(resolve(DeleteMessage::class)($message))->toBe(0)
         ->and(AppActionEvent::query()->count())->toBe(0)
-        ->and(AppActionOutboxEntry::query()->count())->toBe(0);
+        ->and(AppActionOutboxEntry::query()->count())->toBe(0)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
 
     Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
     Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
 });
+
+test('failed immediate blob cleanup remains durable until the scheduled retry succeeds', function (string $failure): void {
+    $admin = auditAdmin();
+    $message = createAuditMessage("cleanup-{$failure}");
+    $attachment = createAuditAttachment($message, "attachments/cleanup-{$failure}.txt");
+    $filesystemManager = Storage::getFacadeRoot();
+    $failingDisk = Mockery::mock(FilesystemAdapter::class);
+    $deletion = $failingDisk->shouldReceive('delete')->twice();
+
+    if ($failure === 'false') {
+        $deletion->andReturnFalse();
+    } else {
+        $deletion->andThrow(new RuntimeException('Forced object-storage delete failure.'));
+    }
+
+    Storage::shouldReceive('disk')->andReturn($failingDisk);
+
+    try {
+        $this->actingAs($admin)
+            ->delete(route('sink.message.destroy', $message))
+            ->assertRedirect(route('sink.inbox'));
+    } finally {
+        Storage::swap($filesystemManager);
+    }
+
+    expect(Message::query()->whereKey($message->getKey())->exists())->toBeFalse()
+        ->and(AppActionEvent::query()->count())->toBe(1)
+        ->and(AppActionOutboxEntry::query()->count())->toBe(1)
+        ->and(MessageBlobCleanupIntent::query()->pluck('object_key')->sort()->values()->all())->toBe([
+            $attachment->object_key,
+            $message->raw_object_key,
+        ]);
+
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
+
+    $this->artisan('sink:maintain')->assertSuccessful();
+
+    expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
+})->with(['false', 'exception']);
 
 test('message deletion fails closed when the Sink connection is not shared', function (): void {
     $message = createAuditMessage('split-connection-delete');
