@@ -43,7 +43,7 @@ test('a parser-held message lock makes deletion wait and capture its attachment 
             (new ParseMessage($messageId))->handle();
             fwrite($parserChild, "parsed\n");
         } catch (Throwable $exception) {
-            fwrite($parserChild, 'error:'.get_class($exception)."\n");
+            fwrite($parserChild, 'error:'.$exception::class."\n");
         }
 
         fclose($parserChild);
@@ -66,7 +66,7 @@ test('a parser-held message lock makes deletion wait and capture its attachment 
             $deleted = resolve(DeleteMessage::class)($messageId);
             fwrite($deleteChild, "deleted:{$deleted}\n");
         } catch (Throwable $exception) {
-            fwrite($deleteChild, 'error:'.get_class($exception)."\n");
+            fwrite($deleteChild, 'error:'.$exception::class."\n");
         }
 
         fclose($deleteChild);
@@ -130,7 +130,7 @@ test('a delete-held message lock stops parsing before it can write an attachment
             $deleted = resolve(DeleteMessage::class)($messageId);
             fwrite($deleteChild, "deleted:{$deleted}\n");
         } catch (Throwable $exception) {
-            fwrite($deleteChild, 'error:'.get_class($exception)."\n");
+            fwrite($deleteChild, 'error:'.$exception::class."\n");
         }
 
         fclose($deleteChild);
@@ -153,7 +153,7 @@ test('a delete-held message lock stops parsing before it can write an attachment
             (new ParseMessage($messageId))->handle();
             fwrite($parserChild, "parsed\n");
         } catch (Throwable $exception) {
-            fwrite($parserChild, 'error:'.get_class($exception)."\n");
+            fwrite($parserChild, 'error:'.$exception::class."\n");
         }
 
         fclose($parserChild);
