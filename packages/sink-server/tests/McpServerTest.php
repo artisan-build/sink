@@ -273,7 +273,8 @@ it('rolls the MCP database purge back when audit recording fails', function (): 
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
-    Storage::disk((string) config('sink-server.disk'))->assertMissing('raw/alpha/secret.eml');
+    Storage::disk((string) config('sink-server.disk'))->assertExists('raw/alpha/secret.eml');
+    Storage::disk((string) config('sink-server.disk'))->assertExists('attachments/alpha/secret/guide.txt');
 });
 
 it('keeps every read tool body blind', function (): void {

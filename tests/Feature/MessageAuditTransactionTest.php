@@ -13,9 +13,12 @@ use ArtisanBuild\BuiltForCloud\Console\ConsoleGuardConfiguration;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
+use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Models\Message;
+use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -37,10 +40,16 @@ test('Sink declares the exact bounded action vocabulary', function (): void {
 test('the real UI delete route records exactly one local-user event and ledger row', function (): void {
     $admin = auditAdmin();
     $message = createAuditMessage('local-delete', subject: 'Delete content must not enter audit');
+    $attachment = createAuditAttachment($message, 'attachments/local-delete.txt');
 
-    $this->actingAs($admin)
-        ->delete(route('sink.message.destroy', $message))
-        ->assertRedirect(route('sink.inbox'));
+    DB::transaction(function () use ($admin, $message, $attachment): void {
+        $this->actingAs($admin)
+            ->delete(route('sink.message.destroy', $message))
+            ->assertRedirect(route('sink.inbox'));
+
+        Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+        Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
+    });
 
     $event = AppActionEvent::query()->sole();
     $ledger = AppActionOutboxEntry::query()->sole();
@@ -60,6 +69,9 @@ test('the real UI delete route records exactly one local-user event and ledger r
         ->and(json_encode([$event->getAttributes(), $ledger->getAttributes()], JSON_THROW_ON_ERROR))
         ->not->toContain('Delete content must not enter audit')
         ->not->toContain('local-delete');
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
 });
 
 test('the real UI purge route records one delegated event for the whole purge', function (): void {
@@ -119,11 +131,12 @@ test('UI purge refusal and destructive no-ops emit no successful action event', 
         ->and(AppActionOutboxEntry::query()->count())->toBe(0);
 });
 
-test('a forced recorder failure rolls back the UI domain mutation on the shared connection', function (): void {
+test('a forced recorder failure retains the UI message row and blobs on the shared connection', function (): void {
     expect(enum_exists(SinkAction::class))->toBeTrue();
 
     $admin = auditAdmin();
     $message = createAuditMessage('recorder-failure', rawObjectKey: 'raw/recorder-failure.eml');
+    $attachment = createAuditAttachment($message, 'attachments/recorder-failure.txt');
 
     DB::transaction(function () use ($admin, $message): void {
         resolve(AppActionRecorder::class)->record(
@@ -145,7 +158,63 @@ test('a forced recorder failure rolls back the UI domain mutation on the shared 
         ->and(AppActionEvent::query()->count())->toBe(1)
         ->and(AppActionOutboxEntry::query()->count())->toBe(1);
 
-    Storage::disk((string) config('sink-server.disk'))->assertMissing('raw/recorder-failure.eml');
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
+});
+
+test('a stale route-bound delete returns zero and emits no successful action event', function (): void {
+    $admin = auditAdmin();
+    $message = createAuditMessage('stale-route-delete');
+    $attachment = createAuditAttachment($message, 'attachments/stale-route-delete.txt');
+    $competingDeleteCount = null;
+
+    DB::listen(function (QueryExecuted $query) use ($message, &$competingDeleteCount): void {
+        if ($competingDeleteCount !== null
+            || ! str_starts_with(strtolower(ltrim($query->sql)), 'select')
+            || ! str_contains($query->sql, (new Message)->getTable())
+            || ! in_array((string) $message->getKey(), array_map(strval(...), $query->bindings), true)) {
+            return;
+        }
+
+        $competingDeleteCount = 0;
+        $competingDeleteCount = Message::query()->whereKey($message->getKey())->delete();
+    });
+
+    $this->actingAs($admin)
+        ->delete(route('sink.message.destroy', $message))
+        ->assertRedirect(route('sink.inbox'));
+
+    expect($competingDeleteCount)->toBe(1)
+        ->and(resolve(DeleteMessage::class)($message))->toBe(0)
+        ->and(AppActionEvent::query()->count())->toBe(0)
+        ->and(AppActionOutboxEntry::query()->count())->toBe(0);
+
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($attachment->object_key);
+});
+
+test('message deletion fails closed when the Sink connection is not shared', function (): void {
+    $message = createAuditMessage('split-connection-delete');
+
+    config()->set('database.connections.split-sink', [
+        'driver' => 'sqlite',
+        'database' => ':memory:',
+        'prefix' => '',
+    ]);
+
+    $sinkConnection = config('sink-server.database.connection');
+    config()->set('sink-server.database.connection', 'split-sink');
+
+    try {
+        expect(fn (): int => resolve(DeleteMessage::class)($message))
+            ->toThrow(LogicException::class, 'Message deletion requires the Sink and application database to share one connection.');
+    } finally {
+        config()->set('sink-server.database.connection', $sinkConnection);
+        DB::purge('split-sink');
+    }
+
+    expect(Message::query()->whereKey($message->getKey())->exists())->toBeTrue();
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
 });
 
 test('message and audit writes share rollback and commit boundaries', function (): void {
@@ -256,4 +325,18 @@ function createAuditMessage(
     Storage::disk((string) config('sink-server.disk'))->put($rawObjectKey, 'private message body');
 
     return $message;
+}
+
+function createAuditAttachment(Message $message, string $objectKey): MessageAttachment
+{
+    $attachment = $message->attachments()->create([
+        'filename' => basename($objectKey),
+        'mime' => 'text/plain',
+        'size_bytes' => 18,
+        'object_key' => $objectKey,
+    ]);
+
+    Storage::disk((string) config('sink-server.disk'))->put($objectKey, 'private attachment');
+
+    return $attachment;
 }
