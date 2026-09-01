@@ -48,8 +48,6 @@ final class SinkServerServiceProvider extends ServiceProvider
         $this->app->booted(function (): void {
             Mcp::web((string) config('sink-server.mcp.path', '/mcp'), SinkMcpServer::class)
                 ->middleware([AuthenticateSinkMcp::class]);
-
-            Mcp::local((string) config('sink-server.mcp.local_name', 'sink'), SinkMcpServer::class);
         });
 
         if ($this->app->runningInConsole()) {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
@@ -11,10 +12,21 @@ use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Laravel\Mcp\Facades\Mcp;
 
 beforeEach(function (): void {
     Storage::fake((string) config('sink-server.disk'));
     ApiToken::factory()->create(['name' => 'mcp', 'token_hash' => hash('sha256', 'mcp-token')]);
+});
+
+it('registers only the authenticated web MCP transport', function (): void {
+    $path = (string) config('sink-server.mcp.path');
+    $route = Mcp::getWebServer(ltrim($path, '/'));
+
+    expect($route)->not->toBeNull()
+        ->and($route?->gatherMiddleware())->toContain(AuthenticateSinkMcp::class)
+        ->and(Mcp::getLocalServer('sink'))->toBeNull()
+        ->and(config('sink-server.mcp'))->toBe(['path' => '/mcp']);
 });
 
 it('fails closed for unauthenticated MCP HTTP requests and initializes with a valid token', function (): void {

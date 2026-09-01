@@ -257,9 +257,8 @@ backstop.
 - Auth provided by built-for-cloud (`create-admin`, invitations, the auth gate).
 
 **MCP server:** registered at `SINK_MCP_PATH` (default `/mcp`), `Authorization: Bearer` required,
-fail-closed `401` otherwise; also registered as a stdio server under `SINK_MCP_LOCAL_NAME` (default
-`sink`) for local Claude Code. **Every tool is read-only metadata except the one scoped purge tool,
-and no tool returns body content.**
+fail-closed `401` otherwise. **Every tool is read-only metadata except the one scoped purge tool, and
+no tool returns body content.**
 
 ---
 
@@ -355,9 +354,8 @@ Plus the built-for-cloud `api_tokens`, `users`, and `invitations` tables.
 
 `DB_CONNECTION=pgsql` + `DB_*`; `SINK_DB_*` (usually copied from `DB_*`); object-storage bucket
 credentials; `QUEUE_CONNECTION=redis` + `SINK_QUEUE_CONNECTION=redis`; `SINK_RETENTION_DAYS` (7),
-`SINK_MAX_MESSAGES`, `SINK_MAX_TOTAL_BYTES`; `SINK_MCP_PATH` (`/mcp`), `SINK_MCP_LOCAL_NAME`
-(`sink`); `FALLBACK_TOKEN` (bootstrap); app auth secrets. Do not enable any Cloud-managed mail
-integration for the Sink app.
+`SINK_MAX_MESSAGES`, `SINK_MAX_TOTAL_BYTES`; `SINK_MCP_PATH` (`/mcp`); `FALLBACK_TOKEN` (bootstrap);
+app auth secrets. Do not enable any Cloud-managed mail integration for the Sink app.
 
 ---
 

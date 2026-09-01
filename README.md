@@ -164,7 +164,7 @@ Required production environment:
 - `QUEUE_CONNECTION=redis` and `SINK_QUEUE_CONNECTION=redis` for parse jobs.
 - `SINK_RETENTION_DAYS`, default `7`, plus optional `SINK_MAX_MESSAGES` and
   `SINK_MAX_TOTAL_BYTES` caps.
-- `SINK_MCP_PATH`, default `/mcp`, and `SINK_MCP_LOCAL_NAME`, default `sink`.
+- `SINK_MCP_PATH`, default `/mcp`.
 - App auth secrets and bearer tokens managed by `artisan-build/built-for-cloud`.
 
 Do not enable a Cloud-managed mail integration for the Sink app. Sink is the inbox.
@@ -214,8 +214,7 @@ silently swallowing production mail.
 
 The HTTP MCP server is registered at `SINK_MCP_PATH`, default `/mcp`, and requires
 `Authorization: Bearer <token>`. Requests without a resolving bearer token fail
-closed with `401`. For local Claude Code use, the same server is registered as a
-stdio MCP server under `SINK_MCP_LOCAL_NAME`, defaulting to `sink`.
+closed with `401`.
 
 Sink's MCP server is body-blind: no tool returns rendered or raw body content.
 Agents get envelope metadata, recipients, headers, links, attachment metadata,
