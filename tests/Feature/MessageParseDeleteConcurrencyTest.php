@@ -11,10 +11,15 @@ use ArtisanBuild\SinkServer\Jobs\ParseMessage;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
+use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Assert;
+use PHPUnit\Framework\AssertionFailedError;
 
 test('a parser-held message lock makes deletion wait and capture its attachment blob', function (): void {
     requirePostgresConcurrencyHarness($this);
@@ -107,7 +112,6 @@ test('a delete-held message lock stops parsing before it can write an attachment
 
     $message = createConcurrencyMessage('delete-first');
     $messageId = (int) $message->getKey();
-    $attachmentObjectKey = "attachments/{$message->app}/{$message->idempotency_key}/1-note.txt";
     [$deleteParent, $deleteChild] = concurrencySocketPair();
     [$parserParent, $parserChild] = concurrencySocketPair();
 
@@ -168,7 +172,7 @@ test('a delete-held message lock stops parsing before it can write an attachment
 
     expect(readConcurrencyLine($parserParent))->toBe('started');
     expect(concurrencyLineAvailable($parserParent, 250_000))->toBeFalse();
-    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachmentObjectKey);
+    assertNoConcurrencyAttachmentFiles();
     fwrite($deleteParent, "continue\n");
 
     expect(readConcurrencyLine($deleteParent))->toBe('deleted:1')
@@ -185,10 +189,126 @@ test('a delete-held message lock stops parsing before it can write an attachment
         ->and(Message::query()->whereKey($message->getKey())->exists())->toBeFalse()
         ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
 
-    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachmentObjectKey);
+    assertNoConcurrencyAttachmentFiles();
+    expect(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 
     DB::beginTransaction();
 });
+
+test('the delete-first attachment instrument rejects an immutable-key orphan decoy', function (): void {
+    Storage::fake((string) config('sink-server.disk'));
+    $obsoleteDeterministicKey = 'attachments/app/idempotency/1-note.txt';
+    $immutableDecoyKey = 'attachments/'.(string) Str::ulid().'/1-note.txt';
+    Storage::disk((string) config('sink-server.disk'))->put($immutableDecoyKey, 'orphan');
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($obsoleteDeterministicKey);
+    expect(fn () => assertNoConcurrencyAttachmentFiles())->toThrow(AssertionFailedError::class);
+
+    Storage::disk((string) config('sink-server.disk'))->delete($immutableDecoyKey);
+    assertNoConcurrencyAttachmentFiles();
+});
+
+test('two concurrent posts serialize immutable writes without orphaning the losing blob', function (bool $existingRow): void {
+    requirePostgresConcurrencyHarness($this);
+
+    $appId = 'concurrent-posts';
+    $token = 'concurrent-post-token';
+    $idempotencyKey = (string) Str::ulid();
+    $rawBodies = [simpleConcurrentRaw('First concurrent body'), simpleConcurrentRaw('Second concurrent body')];
+    resolve(TokenRegistry::class)->store($appId, hash('sha256', $token));
+
+    if ($existingRow) {
+        $this->postJson('/ingest', concurrencyEnvelopePayload($idempotencyKey, simpleConcurrentRaw('Existing body')), [
+            'Authorization' => "Bearer {$token}",
+        ])->assertAccepted();
+    }
+
+    expect(Message::query()->where('app', $appId)->where('idempotency_key', $idempotencyKey)->count())
+        ->toBe($existingRow ? 1 : 0);
+
+    $pipes = [concurrencySocketPair(), concurrencySocketPair()];
+    $pids = [];
+
+    foreach ([0, 1] as $index) {
+        $pid = pcntl_fork();
+
+        if ($pid === 0) {
+            foreach ($pipes as $pipeIndex => [$parentStream, $childStream]) {
+                fclose($parentStream);
+
+                if ($pipeIndex !== $index) {
+                    fclose($childStream);
+                }
+            }
+
+            runConcurrentIngestProcess(
+                stream: $pipes[$index][1],
+                token: $token,
+                payload: concurrencyEnvelopePayload($idempotencyKey, $rawBodies[$index]),
+            );
+        }
+
+        $pids[$index] = $pid;
+    }
+
+    foreach ($pipes as [, $childStream]) {
+        fclose($childStream);
+    }
+
+    foreach ($pipes as [$parentStream]) {
+        expect(readConcurrencyLine($parentStream))->toBe('selected');
+    }
+
+    foreach ($pipes as [$parentStream]) {
+        fwrite($parentStream, "continue\n");
+    }
+
+    [$firstIndex, $firstStored] = readConcurrencyLineFromAny([$pipes[0][0], $pipes[1][0]]);
+    expect($firstStored)->toStartWith('stored:');
+    $firstObjectKey = substr($firstStored, strlen('stored:'));
+    fwrite($pipes[$firstIndex][0], "continue\n");
+    $firstResponse = readConcurrencyLine($pipes[$firstIndex][0]);
+
+    $secondIndex = $firstIndex === 0 ? 1 : 0;
+    $secondStored = readConcurrencyLine($pipes[$secondIndex][0]);
+    expect($secondStored)->toStartWith('stored:');
+    $secondObjectKey = substr($secondStored, strlen('stored:'));
+
+    expect($secondObjectKey)->not->toBe($firstObjectKey)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toContain(
+            $firstObjectKey,
+            $secondObjectKey,
+        );
+
+    fwrite($pipes[$secondIndex][0], "continue\n");
+    $secondResponse = readConcurrencyLine($pipes[$secondIndex][0]);
+
+    foreach ($pids as $index => $pid) {
+        pcntl_waitpid($pid, $statuses[$index]);
+        fclose($pipes[$index][0]);
+    }
+
+    reconnectConcurrencyDatabase();
+    $message = Message::query()->where('app', $appId)->where('idempotency_key', $idempotencyKey)->sole();
+    $responsePattern = '/^response:202:'.preg_quote((string) $message->getKey(), '/').'$/';
+
+    expect($firstResponse)->toMatch($responsePattern)
+        ->and($secondResponse)->toMatch($responsePattern)
+        ->and(pcntl_wexitstatus($statuses[0]))->toBe(0)
+        ->and(pcntl_wexitstatus($statuses[1]))->toBe(0)
+        ->and(Message::query()->where('app', $appId)->where('idempotency_key', $idempotencyKey)->count())->toBe(1)
+        ->and($message->raw_object_key)->toBe($secondObjectKey)
+        ->and(Storage::disk((string) config('sink-server.disk'))->get($message->raw_object_key))->toBe($rawBodies[$secondIndex])
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([$message->raw_object_key]);
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
+
+    DB::beginTransaction();
+})->with([
+    'absent-row initial ingest' => false,
+    'existing-row repeat ingest' => true,
+]);
 
 test('cleanup cannot delete immutable bytes written by a concurrent reingest', function (): void {
     requirePostgresConcurrencyHarness($this);
@@ -394,6 +514,94 @@ function concurrencyLineAvailable($stream, int $microseconds): bool
     return stream_select($read, $write, $except, $seconds, $remainingMicroseconds) > 0;
 }
 
+/**
+ * @param  list<resource>  $streams
+ * @return array{0: int, 1: string}
+ */
+function readConcurrencyLineFromAny(array $streams): array
+{
+    $read = $streams;
+    $write = null;
+    $except = null;
+
+    if (stream_select($read, $write, $except, 5) < 1) {
+        throw new RuntimeException('Timed out waiting for either concurrent process.');
+    }
+
+    $stream = array_values($read)[0];
+    $index = array_search($stream, $streams, true);
+
+    if (! is_int($index)) {
+        throw new RuntimeException('Unable to identify the ready concurrent process.');
+    }
+
+    return [$index, trim((string) fgets($stream))];
+}
+
+/**
+ * @param  resource  $stream
+ * @param  array<string, mixed>  $payload
+ */
+function runConcurrentIngestProcess($stream, string $token, array $payload): never
+{
+    reconnectConcurrencyDatabase();
+    $selected = false;
+
+    DB::listen(function (QueryExecuted $query) use (&$selected, $stream): void {
+        if ($selected || ! isUnlockedMessageQuery($query)) {
+            return;
+        }
+
+        $selected = true;
+        fwrite($stream, "selected\n");
+        fgets($stream);
+    });
+
+    $disk = Storage::disk((string) config('sink-server.disk'));
+    $blockingDisk = Mockery::mock(FilesystemAdapter::class);
+    $blockingDisk->shouldReceive('put')->once()->andReturnUsing(function (string $path, string $contents) use ($disk, $stream): bool {
+        $stored = $disk->put($path, $contents);
+        fwrite($stream, "stored:{$path}\n");
+        fgets($stream);
+
+        return $stored;
+    });
+    $blockingDisk->shouldReceive('delete')->zeroOrMoreTimes()->andReturnUsing(
+        fn (string $path): bool => $disk->delete($path),
+    );
+    Storage::shouldReceive('disk')->andReturn($blockingDisk);
+
+    try {
+        $request = Request::create(
+            uri: '/ingest',
+            method: 'POST',
+            server: [
+                'HTTP_ACCEPT' => 'application/json',
+                'HTTP_AUTHORIZATION' => "Bearer {$token}",
+                'CONTENT_TYPE' => 'application/json',
+            ],
+            content: json_encode($payload, JSON_THROW_ON_ERROR),
+        );
+        $response = resolve(HttpKernel::class)->handle($request);
+        $responseBody = json_decode((string) $response->getContent(), true, 512, JSON_THROW_ON_ERROR);
+        fwrite($stream, "response:{$response->getStatusCode()}:{$responseBody['id']}\n");
+    } catch (Throwable $exception) {
+        @fwrite($stream, 'error:'.$exception::class."\n");
+    }
+
+    fclose($stream);
+    exit(0);
+}
+
+function isUnlockedMessageQuery(QueryExecuted $query): bool
+{
+    $sql = strtolower($query->sql);
+
+    return str_starts_with(ltrim($sql), 'select')
+        && str_contains($sql, 'from "messages"')
+        && ! str_contains($sql, 'for update');
+}
+
 function reconnectConcurrencyDatabase(): void
 {
     DB::purge();
@@ -435,4 +643,14 @@ function concurrencyMultipartMime(): string
     $attachment = base64_encode('Concurrent attachment.');
 
     return "From: Sender <sender@example.com>\r\nTo: To <to@example.com>\r\nSubject: Concurrent parse\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=outer\r\n\r\n--outer\r\nContent-Type: text/plain\r\n\r\nBody.\r\n--outer\r\nContent-Type: text/plain; name=\"note.txt\"\r\nContent-Disposition: attachment; filename=\"note.txt\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{$attachment}\r\n--outer--\r\n";
+}
+
+function simpleConcurrentRaw(string $subject): string
+{
+    return "From: Sender <sender@example.com>\r\nTo: To <to@example.com>\r\nSubject: {$subject}\r\nContent-Type: text/plain\r\n\r\nBody.";
+}
+
+function assertNoConcurrencyAttachmentFiles(): void
+{
+    Assert::assertSame([], Storage::disk((string) config('sink-server.disk'))->allFiles('attachments'));
 }

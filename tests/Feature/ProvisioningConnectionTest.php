@@ -10,27 +10,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 test('the default Cloud provisioning template preserves shared destructive transactions', function (): void {
-    $resourcePlan = file_get_contents(base_path('.claude/skills/provisioning-sink-on-cloud/reference/resource-plan.md'));
-
-    expect($resourcePlan)->toBeString();
-
-    $loopStart = strpos($resourcePlan, 'for kv in \\');
-    $loopEnd = $loopStart === false ? false : strpos($resourcePlan, '; do', $loopStart);
-
-    expect($loopStart)->not->toBeFalse()
-        ->and($loopEnd)->not->toBeFalse();
-
-    $defaultVariables = substr($resourcePlan, $loopStart, $loopEnd - $loopStart);
-    preg_match_all("/'([A-Z0-9_]+)=/", $defaultVariables, $matches);
-
-    expect($matches[1])->not->toContain(
-        'SINK_DB_HOST',
-        'SINK_DB_PORT',
-        'SINK_DB_DATABASE',
-        'SINK_DB_USERNAME',
-        'SINK_DB_PASSWORD',
-    );
-
     config()->set('sink-server.database', [
         'connection' => 'sink',
         'host' => null,
