@@ -62,8 +62,8 @@ and a successful deploy prove they are attached. Verify functionally:
 - Do not enable Cloud-managed mail integration for Sink.
 - Bucket attach must precede storage verification; `FILESYSTEM_DISK=private` appears only after Cloud injects the
   attached storage config and the app is deployed.
-- `SINK_DB_*` should track injected `DB_*` by default; only split them when a user explicitly wants a separate
-  metadata database.
+- Leave `SINK_DB_*` unset by default so Sink reuses the exact injected default connection/PDO. Set all five only
+  when a user explicitly wants a separate metadata database.
 - `FALLBACK_TOKEN` is a bootstrap convenience. For production hand-off, issue per-app tokens from the operator's
   machine with `php artisan token:create <label>` in the Sink app clone where `.cloud/config.json` is bound and
   the `cloud` CLI is authenticated. `<label>` is a human token label, such as the source app's name, not a

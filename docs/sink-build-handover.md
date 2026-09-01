@@ -323,8 +323,8 @@ in-flight UI app:
 
 ## Data model
 
-Postgres (the `sink` connection; in the default app setup `SINK_DB_*` points at the same database
-as `DB_*`):
+Postgres (the default app connection; leave `SINK_DB_*` unset unless intentionally splitting metadata
+into another database):
 
 - `messages` — `id`, `idempotency_key` (unique), `app`, `stream` (nullable), `subject`,
   `from_address`, `from_name`, `message_id`, `sent_at`, `received_at`, `size_bytes`,
@@ -352,7 +352,7 @@ Plus the built-for-cloud `api_tokens`, `users`, and `invitations` tables.
 
 **Sink app (`sink-server`):**
 
-`DB_CONNECTION=pgsql` + `DB_*`; `SINK_DB_*` (usually copied from `DB_*`); object-storage bucket
+`DB_CONNECTION=pgsql` + `DB_*`; `SINK_DB_*` only for an intentional split metadata database; object-storage bucket
 credentials; `QUEUE_CONNECTION=redis` + `SINK_QUEUE_CONNECTION=redis`; `SINK_RETENTION_DAYS` (7),
 `SINK_MAX_MESSAGES`, `SINK_MAX_TOTAL_BYTES`; `SINK_MCP_PATH` (`/mcp`); `FALLBACK_TOKEN` (bootstrap);
 app auth secrets. Do not enable any Cloud-managed mail integration for the Sink app.
@@ -366,7 +366,8 @@ object-storage bucket. Run the scheduler (schedules `sink:maintain`) and a Redis
 (drains parse jobs).
 
 The `provisioning-sink-on-cloud` skill (built on built-for-cloud's cloud-CLI wrapper) provisions
-Postgres, Redis, the bucket, a web instance, a managed queue, and the scheduler; wires `SINK_*`;
+Postgres, Redis, the bucket, a web instance, a managed queue, and the scheduler; wires Sink's queue,
+retention, storage, and MCP settings while leaving `SINK_DB_*` unset for the shared default connection;
 deploys; migrates; runs `create-admin`; and issues the first source-app token — running everything
 deterministically and pausing only for the interactive Cloud steps the human must run. It
 specializes the Cloud CLI's generic `deploying-laravel-cloud` skill, the same way Hone and Matte do.

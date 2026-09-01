@@ -51,9 +51,9 @@ test('production roots use the one BfC layout and dual-principal middleware', fu
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $invitationsMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('invitations'));
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.6.1')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.6.2')
         ->and(InstalledVersions::getReference('artisan-build/built-for-cloud'))
-        ->toBe('2de534142f784700b2a628b69af43bc99cfe9783')
+        ->toBe('06cb53c41e92bb9009000b3895ee9fa79bce0795')
         ->and(config('livewire.component_layout'))->toBe('bfc::layout')
         ->and(realpath(view()->getFinder()->find('bfc::layout')))
         ->toBe(realpath(resource_path('views/vendor/bfc/layout.blade.php')))

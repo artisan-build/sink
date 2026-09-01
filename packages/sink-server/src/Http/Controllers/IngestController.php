@@ -7,6 +7,7 @@ namespace ArtisanBuild\SinkServer\Http\Controllers;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Exceptions\InvalidEnvelope;
+use ArtisanBuild\SinkServer\Actions\QueueMessageBlobCleanup;
 use ArtisanBuild\SinkServer\Jobs\ParseMessage;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Http\JsonResponse;
@@ -14,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use JsonException;
 
 final class IngestController
@@ -65,22 +67,40 @@ final class IngestController
             return response()->json(['message' => 'Envelope "message" must be valid base64.'], 422);
         }
 
-        $key = "raw/{$appId}/{$envelope->idempotencyKey}.eml";
+        $key = "raw/{$appId}/".(string) Str::ulid().'.eml';
+        $connection = (new Message)->getConnection();
+        $message = $connection->transaction(function () use ($appId, $envelope, $key, $raw, $connection): Message {
+            $message = Message::query()->firstOrCreate([
+                'app' => $appId,
+                'idempotency_key' => $envelope->idempotencyKey,
+            ], [
+                'stream' => $envelope->stream,
+                'sent_at' => $this->parseSentAt($envelope->sentAt),
+                'received_at' => now(),
+                'truncation' => $envelope->truncation->value,
+                'raw_object_key' => $key,
+                'size_bytes' => strlen($raw),
+            ]);
+            $message = Message::query()->whereKey($message->getKey())->lockForUpdate()->firstOrFail();
+            $replacedObjectKey = $message->raw_object_key;
 
-        Storage::disk((string) config('sink-server.disk'))->put($key, $raw);
+            Storage::disk((string) config('sink-server.disk'))->put($key, $raw);
 
-        $message = Message::query()->updateOrCreate([
-            'app' => $appId,
-            'idempotency_key' => $envelope->idempotencyKey,
-        ], [
-            'app' => $appId,
-            'stream' => $envelope->stream,
-            'sent_at' => $this->parseSentAt($envelope->sentAt),
-            'received_at' => now(),
-            'truncation' => $envelope->truncation->value,
-            'raw_object_key' => $key,
-            'size_bytes' => strlen($raw),
-        ]);
+            $message->forceFill([
+                'stream' => $envelope->stream,
+                'sent_at' => $this->parseSentAt($envelope->sentAt),
+                'received_at' => now(),
+                'truncation' => $envelope->truncation->value,
+                'raw_object_key' => $key,
+                'size_bytes' => strlen($raw),
+            ])->save();
+
+            if ($replacedObjectKey !== $key) {
+                app(QueueMessageBlobCleanup::class)([$replacedObjectKey], $connection);
+            }
+
+            return $message;
+        });
 
         $job = new ParseMessage((int) $message->getKey());
 

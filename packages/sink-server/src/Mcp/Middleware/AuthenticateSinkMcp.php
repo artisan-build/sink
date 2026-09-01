@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Middleware;
 
+use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use Closure;
 use Illuminate\Http\Request;
@@ -15,9 +16,13 @@ final class AuthenticateSinkMcp
 
     public function handle(Request $request, Closure $next): Response
     {
-        if ($this->tokens->resolveModel((string) $request->bearerToken()) === null) {
+        $token = $this->tokens->resolveModel((string) $request->bearerToken());
+
+        if (! $token instanceof ApiToken) {
             abort(401);
         }
+
+        $request->attributes->set(ApiToken::class, $token);
 
         return $next($request);
     }

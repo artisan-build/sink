@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
+use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
@@ -69,15 +70,22 @@ test('message migrations use the configured connection', function (): void {
 
     $messages = require __DIR__.'/../database/migrations/2026_06_22_000001_create_messages_table.php';
     $children = require __DIR__.'/../database/migrations/2026_06_22_000002_create_message_children_tables.php';
+    $cleanupIntents = require __DIR__.'/../database/migrations/2026_09_01_154904_create_message_blob_cleanup_intents_table.php';
 
     $messages->up();
     $children->up();
+    $cleanupIntents->up();
 
     expect(Schema::connection('message-migrations')->hasTable('messages'))->toBeTrue()
         ->and(Schema::connection('message-migrations')->hasTable('message_recipients'))->toBeTrue()
         ->and(Schema::connection('message-migrations')->hasTable('message_headers'))->toBeTrue()
         ->and(Schema::connection('message-migrations')->hasTable('message_links'))->toBeTrue()
-        ->and(Schema::connection('message-migrations')->hasTable('message_attachments'))->toBeTrue();
+        ->and(Schema::connection('message-migrations')->hasTable('message_attachments'))->toBeTrue()
+        ->and(Schema::connection('message-migrations')->hasTable('message_blob_cleanup_intents'))->toBeTrue();
+
+    $cleanupIntents->down();
+
+    expect(Schema::connection('message-migrations')->hasTable('message_blob_cleanup_intents'))->toBeFalse();
 });
 
 /**
@@ -96,7 +104,7 @@ function blankSinkDatabaseConfiguration(): array
 }
 
 /**
- * @return list<Message|MessageRecipient|MessageHeader|MessageLink|MessageAttachment>
+ * @return list<Message|MessageRecipient|MessageHeader|MessageLink|MessageAttachment|MessageBlobCleanupIntent>
  */
 function sinkModels(): array
 {
@@ -106,5 +114,6 @@ function sinkModels(): array
         new MessageHeader,
         new MessageLink,
         new MessageAttachment,
+        new MessageBlobCleanupIntent,
     ];
 }

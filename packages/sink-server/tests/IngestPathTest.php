@@ -5,9 +5,11 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
+use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Jobs\ParseMessage;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
+use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
@@ -58,10 +60,18 @@ it('upserts messages by idempotency key', function (): void {
 
     $this->postJson('/ingest', envelopePayload($sameKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
+    $message = Message::query()->where('idempotency_key', $sameKey)->firstOrFail();
+    $firstObjectKey = $message->raw_object_key;
+
     $this->postJson('/ingest', envelopePayload($sameKey, simpleMime('Replay')), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
+    $message->refresh();
 
-    expect(Message::query()->where('idempotency_key', $sameKey)->count())->toBe(1);
+    expect(Message::query()->where('idempotency_key', $sameKey)->count())->toBe(1)
+        ->and($message->raw_object_key)->not->toBe($firstObjectKey)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
 
     $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertAccepted();
@@ -128,6 +138,46 @@ it('parses metadata links and attachments without persisting body text', functio
     expect(implode(' ', $persisted))->not->toContain('Secret body phrase');
 });
 
+it('captures parser-created attachments when deleting after a completed parse', function (): void {
+    $response = $this->postJson(
+        '/ingest',
+        envelopePayload((string) Str::ulid(), multipartMime()),
+        ['Authorization' => 'Bearer test-token'],
+    )->assertAccepted();
+
+    (new ParseMessage((int) $response->json('id')))->handle();
+
+    $message = Message::query()->with('attachments')->findOrFail((int) $response->json('id'));
+    $attachment = $message->attachments->sole();
+
+    expect(app(DeleteMessage::class)($message))->toBe(1)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
+});
+
+it('reparses attachments onto immutable keys and cleans the replaced blobs', function (): void {
+    $response = $this->postJson(
+        '/ingest',
+        envelopePayload((string) Str::ulid(), multipartMime()),
+        ['Authorization' => 'Bearer test-token'],
+    )->assertAccepted();
+    $messageId = (int) $response->json('id');
+
+    (new ParseMessage($messageId))->handle();
+    $firstObjectKey = MessageAttachment::query()->where('message_id', $messageId)->sole()->object_key;
+
+    (new ParseMessage($messageId))->handle();
+    $secondObjectKey = MessageAttachment::query()->where('message_id', $messageId)->sole()->object_key;
+
+    expect($secondObjectKey)->not->toBe($firstObjectKey)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($secondObjectKey);
+});
+
 it('rejects non ulid idempotency keys before storage or database writes', function (string $idempotencyKey): void {
     $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
         ->assertUnprocessable()
@@ -152,13 +202,15 @@ it('isolates idempotency by resolved app id', function (): void {
         ->assertAccepted();
 
     $messages = Message::query()->where('idempotency_key', $idempotencyKey)->orderBy('app')->get();
+    $rawObjectKeys = $messages->pluck('raw_object_key')->all();
 
     expect($messages)->toHaveCount(2)
         ->and($messages->pluck('app')->all())->toBe(['app-a', 'app-b'])
-        ->and($messages->pluck('raw_object_key')->all())->toBe([
-            "raw/app-a/{$idempotencyKey}.eml",
-            "raw/app-b/{$idempotencyKey}.eml",
-        ]);
+        ->and($rawObjectKeys[0])->toStartWith('raw/app-a/')
+        ->and($rawObjectKeys[1])->toStartWith('raw/app-b/')
+        ->and($rawObjectKeys[0])->not->toBe($rawObjectKeys[1])
+        ->and($rawObjectKeys[0])->toEndWith('.eml')
+        ->and($rawObjectKeys[1])->toEndWith('.eml');
 });
 
 it('dispatches parse jobs on the configured queue after termination', function (): void {

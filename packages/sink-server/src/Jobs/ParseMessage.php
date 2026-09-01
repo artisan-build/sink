@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Jobs;
 
+use ArtisanBuild\SinkServer\Actions\QueueMessageBlobCleanup;
 use ArtisanBuild\SinkServer\Models\Message as SinkMessage;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -27,11 +28,20 @@ final class ParseMessage implements ShouldQueue
 
     public function handle(): void
     {
-        /** @var SinkMessage $message */
-        $message = SinkMessage::query()->with(['recipients', 'headers', 'links', 'attachments'])->findOrFail($this->messageId);
+        (new SinkMessage)->getConnection()->transaction(function (): void {
+            /** @var SinkMessage $message */
+            $message = SinkMessage::query()->whereKey($this->messageId)->lockForUpdate()->firstOrFail();
+
+            $this->parse($message);
+        });
+    }
+
+    private function parse(SinkMessage $message): void
+    {
         $disk = Storage::disk((string) config('sink-server.disk'));
         $raw = $disk->get($message->raw_object_key);
         $parsed = MimeMessage::from($raw, false);
+        $replacedAttachmentObjectKeys = $message->attachments()->pluck('object_key');
 
         $message->recipients()->delete();
         $message->headers()->delete();
@@ -78,7 +88,7 @@ final class ParseMessage implements ShouldQueue
 
             $bytes = (string) ($part->getBinaryContentStream()?->getContents() ?? '');
             $filename = $this->filename($part, $index + 1);
-            $objectKey = "attachments/{$message->app}/{$message->idempotency_key}/".($index + 1).'-'.$filename;
+            $objectKey = 'attachments/'.(string) Str::ulid().'/'.($index + 1).'-'.$filename;
 
             $disk->put($objectKey, $bytes);
 
@@ -97,6 +107,8 @@ final class ParseMessage implements ShouldQueue
             'link_count' => count($links),
             'parsed_at' => now(),
         ])->save();
+
+        app(QueueMessageBlobCleanup::class)($replacedAttachmentObjectKeys, $message->getConnection());
     }
 
     private function storeRecipients(SinkMessage $message, string $kind, mixed $header): void

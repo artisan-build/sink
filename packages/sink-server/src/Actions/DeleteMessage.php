@@ -5,31 +5,43 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Actions;
 
 use ArtisanBuild\SinkServer\Models\Message;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use LogicException;
 
 final class DeleteMessage
 {
     public function __invoke(Message|int $message): int
     {
-        if (! $message instanceof Message) {
-            $message = Message::query()->with('attachments')->find($message);
-        } else {
-            $message->loadMissing('attachments');
+        $messageId = $message instanceof Message ? $message->getKey() : $message;
+        $connection = (new Message)->getConnection();
+        $defaultConnection = DB::connection();
+
+        if ($connection !== $defaultConnection || $connection->getPdo() !== $defaultConnection->getPdo()) {
+            throw new LogicException('Message deletion requires the Sink and application database to share one connection.');
         }
 
-        if (! $message instanceof Message) {
-            return 0;
-        }
+        return $connection->transaction(function () use ($messageId, $connection): int {
+            $message = Message::query()->whereKey($messageId)->lockForUpdate()->first();
 
-        $disk = Storage::disk((string) config('sink-server.disk'));
-        $disk->delete($message->raw_object_key);
+            if (! $message instanceof Message) {
+                return 0;
+            }
 
-        foreach ($message->attachments as $attachment) {
-            $disk->delete($attachment->object_key);
-        }
+            $message->setRelation('attachments', $message->attachments()->lockForUpdate()->get());
+            $objectKeys = $message->attachments
+                ->pluck('object_key')
+                ->prepend($message->raw_object_key)
+                ->unique()
+                ->values();
+            $deleted = $message->newModelQuery()->whereKey($message->getKey())->delete();
 
-        $message->delete();
+            if ($deleted === 0) {
+                return 0;
+            }
 
-        return 1;
+            app(QueueMessageBlobCleanup::class)($objectKeys, $connection);
+
+            return $deleted;
+        });
     }
 }
