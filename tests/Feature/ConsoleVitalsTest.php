@@ -173,6 +173,40 @@ test('headline collection counts on the sink connection without loading message 
         ->and($messageSql)->toBe('select count(*) as "aggregate" from "messages"');
 });
 
+test('repeated authorized polls keep the headline cost at one aggregate query each', function (): void {
+    seedConsoleVitalsMessages(4);
+
+    $reader = $this->mintCredential([
+        'subject_type' => SubjectType::Operator,
+        'subject_ref' => 'poll-cost-console-vitals-reader',
+        'abilities' => [OperatorAbility::MetadataRead->value],
+    ]);
+    $sink = DB::connection((string) config('sink-server.database.connection'));
+
+    $pollCounts = [];
+
+    foreach (range(1, 3) as $poll) {
+        $sink->flushQueryLog();
+        $sink->enableQueryLog();
+
+        try {
+            $this->getJson('/bfc/console/vitals', [
+                'Authorization' => $reader->bearerHeader(),
+            ])->assertSuccessful()
+                ->assertJsonPath('headline.value', 4);
+        } finally {
+            $queries = collect($sink->getQueryLog());
+            $sink->disableQueryLog();
+        }
+
+        $pollCounts[$poll] = $queries
+            ->filter(fn (array $query): bool => Str::contains(Str::lower($query['query']), 'from "messages"'))
+            ->count();
+    }
+
+    expect($pollCounts)->toBe([1 => 1, 2 => 1, 3 => 1]);
+});
+
 test('the metadata conformance instrument rejects an added free text field', function (): void {
     $reader = $this->mintCredential([
         'subject_type' => SubjectType::Operator,
