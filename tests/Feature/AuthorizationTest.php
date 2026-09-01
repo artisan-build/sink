@@ -280,6 +280,24 @@ test('delegated type-qualified identifiers fit the shipped invitation inviter co
         ->and($invitation->refresh()->invited_by)->toBe($identifier);
 });
 
+test('the shipped invitations inviter column declares room for type-qualified delegated identifiers', function (): void {
+    $candidates = glob(base_path('vendor/artisan-build/built-for-cloud/database/migrations/*_generalize_invitations_table.php'));
+
+    expect($candidates)->not->toBeEmpty('The BfC invitations width migration is not locatable.');
+
+    $source = (string) file_get_contents((string) $candidates[0]);
+
+    preg_match("/string\('invited_by',\s*(\d+)\)/", $source, $width);
+
+    expect($width[1] ?? null)->not->toBeNull('The shipped migration no longer declares an invited_by width.')
+        ->and((int) $width[1])->toBeGreaterThanOrEqual(64);
+
+    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
+    $identifier = $actor->getAuthIdentifier();
+
+    expect(Str::length($identifier))->toBeLessThanOrEqual((int) $width[1]);
+});
+
 function authorizationUser(bool $isAdmin): User
 {
     $user = User::factory()->create();
