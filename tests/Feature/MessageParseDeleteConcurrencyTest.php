@@ -198,7 +198,7 @@ test('cleanup cannot delete immutable bytes written by a concurrent reingest', f
     $idempotencyKey = (string) Str::ulid();
     $oldObjectKey = "raw/{$appId}/{$idempotencyKey}.eml";
     $newRaw = concurrencyMultipartMime();
-    app(TokenRegistry::class)->store($appId, hash('sha256', $token));
+    resolve(TokenRegistry::class)->store($appId, hash('sha256', $token));
     Storage::disk((string) config('sink-server.disk'))->put($oldObjectKey, 'old raw');
     MessageBlobCleanupIntent::query()->create(['object_key' => $oldObjectKey]);
     [$cleanupParent, $cleanupChild] = concurrencySocketPair();
