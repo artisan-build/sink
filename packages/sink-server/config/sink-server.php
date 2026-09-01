@@ -22,6 +22,5 @@ return [
     ],
     'mcp' => [
         'path' => env('SINK_MCP_PATH', '/mcp'),
-        'local_name' => env('SINK_MCP_LOCAL_NAME', 'sink'),
     ],
 ];

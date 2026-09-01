@@ -67,7 +67,7 @@ for kv in \
   'SINK_DB_USERNAME=${DB_USERNAME}' 'SINK_DB_PASSWORD=${DB_PASSWORD}' \
   'QUEUE_CONNECTION=redis' 'SINK_QUEUE_CONNECTION=redis' \
   'SINK_RETENTION_DAYS=7' 'SINK_MAX_MESSAGES=<message-cap>' 'SINK_MAX_TOTAL_BYTES=<byte-cap>' \
-  'SINK_MCP_PATH=/mcp' 'SINK_MCP_LOCAL_NAME=sink' \
+  'SINK_MCP_PATH=/mcp' \
   'FILESYSTEM_DISK=private' 'FALLBACK_TOKEN=<random-bootstrap-token>' ; do
   k=${kv%%=*}; v=${kv#*=}
   cloud environment:variables <env-id> --action set --key "$k" --value "$v" -n --force
@@ -108,7 +108,6 @@ app is deployed. `SINK_DB_*` tracks the same database as `DB_*` by default.
 | `SINK_MAX_MESSAGES` | tier-specific cap | Protects Postgres and UI from unbounded growth. |
 | `SINK_MAX_TOTAL_BYTES` | tier-specific cap | Protects bucket storage. |
 | `SINK_MCP_PATH` | `/mcp` | Default MCP path. |
-| `SINK_MCP_LOCAL_NAME` | `sink` | Local MCP display name. |
 | `FALLBACK_TOKEN` | random bootstrap token | Optional bootstrap token for ingest + MCP. Prefer per-app `token:create` tokens. |
 
 Do **not** configure Cloud-managed mail for Sink.
