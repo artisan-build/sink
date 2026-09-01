@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
@@ -16,10 +17,32 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\AssertionFailedError;
+
+afterEach(function (): void {
+    if (DB::connection()->getDriverName() !== 'pgsql') {
+        return;
+    }
+
+    if (Schema::hasTable((new Message)->getTable())) {
+        Message::query()
+            ->where('app', 'like', 'concurrency-harness-%')
+            ->get()
+            ->each(fn (Message $message): int => resolve(DeleteMessage::class)($message));
+    }
+
+    if (Schema::hasTable((new ApiToken)->getTable())) {
+        ApiToken::query()->where('name', 'like', 'concurrency-harness-%')->delete();
+    }
+
+    if (DB::connection()->transactionLevel() === 0) {
+        DB::beginTransaction();
+    }
+});
 
 test('a parser-held message lock makes deletion wait and capture its attachment blob', function (): void {
     requirePostgresConcurrencyHarness($this);
@@ -104,7 +127,6 @@ test('a parser-held message lock makes deletion wait and capture its attachment 
         ->and(MessageBlobCleanupIntent::query()->count())->toBe(0)
         ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 
-    DB::beginTransaction();
 });
 
 test('a delete-held message lock stops parsing before it can write an attachment blob', function (): void {
@@ -192,7 +214,6 @@ test('a delete-held message lock stops parsing before it can write an attachment
     assertNoConcurrencyAttachmentFiles();
     expect(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 
-    DB::beginTransaction();
 });
 
 test('the delete-first attachment instrument rejects an immutable-key orphan decoy', function (): void {
@@ -211,8 +232,9 @@ test('the delete-first attachment instrument rejects an immutable-key orphan dec
 test('two concurrent posts serialize immutable writes without orphaning the losing blob', function (bool $existingRow): void {
     requirePostgresConcurrencyHarness($this);
 
-    $appId = 'concurrent-posts';
-    $token = 'concurrent-post-token';
+    $scenario = $existingRow ? 'repeat' : 'initial';
+    $appId = "concurrency-harness-{$scenario}";
+    $token = "concurrency-harness-token-{$scenario}";
     $idempotencyKey = (string) Str::ulid();
     $rawBodies = [simpleConcurrentRaw('First concurrent body'), simpleConcurrentRaw('Second concurrent body')];
     resolve(TokenRegistry::class)->store($appId, hash('sha256', $token));
@@ -304,7 +326,9 @@ test('two concurrent posts serialize immutable writes without orphaning the losi
 
     Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
 
-    DB::beginTransaction();
+    expect(resolve(DeleteMessage::class)($message))->toBe(1)
+        ->and(ApiToken::query()->where('token_hash', hash('sha256', $token))->delete())->toBe(1)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 })->with([
     'absent-row initial ingest' => false,
     'existing-row repeat ingest' => true,
@@ -313,8 +337,8 @@ test('two concurrent posts serialize immutable writes without orphaning the losi
 test('cleanup cannot delete immutable bytes written by a concurrent reingest', function (): void {
     requirePostgresConcurrencyHarness($this);
 
-    $appId = 'cleanup-race';
-    $token = 'cleanup-race-token';
+    $appId = 'concurrency-harness-cleanup-race';
+    $token = 'concurrency-harness-cleanup-race-token';
     $idempotencyKey = (string) Str::ulid();
     $oldObjectKey = "raw/{$appId}/{$idempotencyKey}.eml";
     $newRaw = concurrencyMultipartMime();
@@ -369,7 +393,9 @@ test('cleanup cannot delete immutable bytes written by a concurrent reingest', f
 
     Storage::disk((string) config('sink-server.disk'))->assertMissing($oldObjectKey);
 
-    DB::beginTransaction();
+    expect(resolve(DeleteMessage::class)($message))->toBe(1)
+        ->and(ApiToken::query()->where('token_hash', hash('sha256', $token))->delete())->toBe(1)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 });
 
 test('concurrent cleanup workers serialize ownership of one intent', function (): void {
@@ -441,7 +467,6 @@ test('concurrent cleanup workers serialize ownership of one intent', function ()
         ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
     Storage::disk((string) config('sink-server.disk'))->assertMissing($objectKey);
 
-    DB::beginTransaction();
 });
 
 function requirePostgresConcurrencyHarness(object $test): void
