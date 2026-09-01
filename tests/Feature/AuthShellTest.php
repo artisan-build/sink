@@ -112,6 +112,48 @@ test('invalid expired and already accepted invitations do not show an open signu
         ->and(User::query()->where('email', 'accepted@test')->count())->toBe(1);
 });
 
+test('an invitation that expires or is claimed after mount is refused at accept without creating an account', function (): void {
+    $expired = Invitation::invite('raced-expired@test', 60);
+    $claimed = Invitation::invite('raced-claimed@test', 604800);
+
+    $userCount = User::query()->count();
+
+    $expiredComponent = Livewire::test(AcceptInvitation::class, ['token' => $expired->token])
+        ->assertSet('validInvitation', true)
+        ->set('name', 'Raced Expired User')
+        ->set('password', 'secret-pass')
+        ->set('password_confirmation', 'secret-pass');
+
+    $claimedComponent = Livewire::test(AcceptInvitation::class, ['token' => $claimed->token])
+        ->assertSet('validInvitation', true)
+        ->set('name', 'Raced Claimed User')
+        ->set('password', 'secret-pass')
+        ->set('password_confirmation', 'secret-pass');
+
+    Invitation::accept($claimed->token, [
+        'name' => 'Claimed Elsewhere User',
+        'password' => 'secret-pass',
+    ]);
+
+    $this->travel(61)->seconds();
+
+    $expiredComponent->call('accept')
+        ->assertNoRedirect()
+        ->assertSet('validInvitation', false);
+
+    $claimedComponent->call('accept')
+        ->assertNoRedirect()
+        ->assertSet('validInvitation', false);
+
+    expect(User::query()->count())->toBe($userCount + 1)
+        ->and(User::query()->where('email', 'raced-expired@test')->exists())->toBeFalse()
+        ->and(User::query()->where('email', 'raced-claimed@test')->count())->toBe(1)
+        ->and(User::query()->where('email', 'raced-claimed@test')->first()?->name)->toBe('Claimed Elsewhere User')
+        ->and($expired->refresh()->accepted_at)->toBeNull()
+        ->and($claimed->refresh()->accepted_at)->not->toBeNull()
+        ->and(Auth::check())->toBeFalse();
+});
+
 test('invitation accept guard properties cannot be forced from the client', function (): void {
     $userCount = User::query()->count();
 

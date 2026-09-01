@@ -92,6 +92,20 @@ test('guests have no administrative standing', function (): void {
     expect(Gate::allows('administer-sink'))->toBeFalse();
 });
 
+test('with the Console disabled the ability still admits a local admin and denies a local member', function (bool $isAdmin): void {
+    config(['built-for-cloud.console.enabled' => false]);
+
+    $user = authorizationUser($isAdmin);
+    $this->actingAs($user);
+    $acting = resolve(ActingPrincipalResolver::class)->resolve();
+
+    expect($acting->delegated)->toBeFalse()
+        ->and(Gate::allows('administer-sink'))->toBe($isAdmin);
+})->with([
+    'positive local admin' => [true],
+    'decoy local member is denied' => [false],
+]);
+
 test('local route enforcement and every admin affordance share the ability', function (bool $isAdmin): void {
     $connection = (string) config('sink-server.database.connection');
 
@@ -264,6 +278,24 @@ test('delegated type-qualified identifiers fit the shipped invitation inviter co
     expect($identifier)->toStartWith(DelegatedActor::IDENTIFIER_PREFIX)
         ->and(Str::length($identifier))->toBeLessThanOrEqual(64)
         ->and($invitation->refresh()->invited_by)->toBe($identifier);
+});
+
+test('the shipped invitations inviter column declares room for type-qualified delegated identifiers', function (): void {
+    $candidates = glob(base_path('vendor/artisan-build/built-for-cloud/database/migrations/*_generalize_invitations_table.php'));
+
+    expect($candidates)->not->toBeEmpty('The BfC invitations width migration is not locatable.');
+
+    $source = (string) file_get_contents((string) $candidates[0]);
+
+    preg_match("/string\('invited_by',\s*(\d+)\)/", $source, $width);
+
+    expect($width[1] ?? null)->not->toBeNull('The shipped migration no longer declares an invited_by width.')
+        ->and((int) $width[1])->toBeGreaterThanOrEqual(64);
+
+    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
+    $identifier = $actor->getAuthIdentifier();
+
+    expect(Str::length($identifier))->toBeLessThanOrEqual((int) $width[1]);
 });
 
 function authorizationUser(bool $isAdmin): User
