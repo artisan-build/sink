@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\SinkContracts\Envelope;
+use ArtisanBuild\SinkContracts\Truncation;
+use ArtisanBuild\SinkServer\Actions\CleanupMessageBlobs;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Jobs\ParseMessage;
 use ArtisanBuild\SinkServer\Models\Message;
@@ -186,6 +190,140 @@ test('a delete-held message lock stops parsing before it can write an attachment
     DB::beginTransaction();
 });
 
+test('cleanup cannot delete immutable bytes written by a concurrent reingest', function (): void {
+    requirePostgresConcurrencyHarness($this);
+
+    $appId = 'cleanup-race';
+    $token = 'cleanup-race-token';
+    $idempotencyKey = (string) Str::ulid();
+    $oldObjectKey = "raw/{$appId}/{$idempotencyKey}.eml";
+    $newRaw = concurrencyMultipartMime();
+    app(TokenRegistry::class)->store($appId, hash('sha256', $token));
+    Storage::disk((string) config('sink-server.disk'))->put($oldObjectKey, 'old raw');
+    MessageBlobCleanupIntent::query()->create(['object_key' => $oldObjectKey]);
+    [$cleanupParent, $cleanupChild] = concurrencySocketPair();
+
+    $cleanupPid = pcntl_fork();
+
+    if ($cleanupPid === 0) {
+        fclose($cleanupParent);
+        reconnectConcurrencyDatabase();
+        $paused = false;
+
+        DB::listen(function (QueryExecuted $query) use (&$paused, $cleanupChild): void {
+            if ($paused || ! isCleanupReferenceQuery($query)) {
+                return;
+            }
+
+            $paused = true;
+            fwrite($cleanupChild, "checked\n");
+            fgets($cleanupChild);
+        });
+
+        $cleaned = resolve(CleanupMessageBlobs::class)();
+        fwrite($cleanupChild, "cleaned:{$cleaned}\n");
+        fclose($cleanupChild);
+        exit(0);
+    }
+
+    fclose($cleanupChild);
+    expect(readConcurrencyLine($cleanupParent))->toBe('checked');
+
+    $this->postJson('/ingest', concurrencyEnvelopePayload($idempotencyKey, $newRaw), [
+        'Authorization' => "Bearer {$token}",
+    ])->assertAccepted();
+
+    $message = Message::query()->where('app', $appId)->where('idempotency_key', $idempotencyKey)->sole();
+    fwrite($cleanupParent, "continue\n");
+
+    expect(readConcurrencyLine($cleanupParent))->toBe('cleaned:1');
+    pcntl_waitpid($cleanupPid, $cleanupStatus);
+    fclose($cleanupParent);
+    reconnectConcurrencyDatabase();
+    $message->refresh();
+
+    expect(pcntl_wexitstatus($cleanupStatus))->toBe(0)
+        ->and($message->raw_object_key)->not->toBe($oldObjectKey)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0)
+        ->and(Storage::disk((string) config('sink-server.disk'))->get($message->raw_object_key))->toBe($newRaw);
+
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($oldObjectKey);
+
+    DB::beginTransaction();
+});
+
+test('concurrent cleanup workers serialize ownership of one intent', function (): void {
+    requirePostgresConcurrencyHarness($this);
+
+    $objectKey = 'raw/concurrent-cleanup.eml';
+    Storage::disk((string) config('sink-server.disk'))->put($objectKey, 'raw');
+    MessageBlobCleanupIntent::query()->create(['object_key' => $objectKey]);
+    [$firstParent, $firstChild] = concurrencySocketPair();
+    [$secondParent, $secondChild] = concurrencySocketPair();
+
+    $firstPid = pcntl_fork();
+
+    if ($firstPid === 0) {
+        fclose($firstParent);
+        fclose($secondParent);
+        fclose($secondChild);
+        reconnectConcurrencyDatabase();
+        $paused = false;
+
+        DB::listen(function (QueryExecuted $query) use (&$paused, $firstChild): void {
+            if ($paused || ! isLockedCleanupIntentQuery($query)) {
+                return;
+            }
+
+            $paused = true;
+            fwrite($firstChild, "locked\n");
+            fgets($firstChild);
+        });
+
+        $cleaned = resolve(CleanupMessageBlobs::class)();
+        fwrite($firstChild, "cleaned:{$cleaned}\n");
+        fclose($firstChild);
+        exit(0);
+    }
+
+    fclose($firstChild);
+    expect(readConcurrencyLine($firstParent))->toBe('locked');
+
+    $secondPid = pcntl_fork();
+
+    if ($secondPid === 0) {
+        fclose($firstParent);
+        fclose($secondParent);
+        reconnectConcurrencyDatabase();
+        fwrite($secondChild, "started\n");
+        $cleaned = resolve(CleanupMessageBlobs::class)();
+        fwrite($secondChild, "cleaned:{$cleaned}\n");
+        fclose($secondChild);
+        exit(0);
+    }
+
+    fclose($secondChild);
+    expect(readConcurrencyLine($secondParent))->toBe('started')
+        ->and(concurrencyLineAvailable($secondParent, 250_000))->toBeFalse();
+    fwrite($firstParent, "continue\n");
+
+    expect(readConcurrencyLine($firstParent))->toBe('cleaned:1')
+        ->and(readConcurrencyLine($secondParent))->toBe('cleaned:0');
+
+    pcntl_waitpid($firstPid, $firstStatus);
+    pcntl_waitpid($secondPid, $secondStatus);
+    fclose($firstParent);
+    fclose($secondParent);
+    reconnectConcurrencyDatabase();
+
+    expect(pcntl_wexitstatus($firstStatus))->toBe(0)
+        ->and(pcntl_wexitstatus($secondStatus))->toBe(0)
+        ->and(MessageBlobCleanupIntent::query()->count())->toBe(0);
+    Storage::disk((string) config('sink-server.disk'))->assertMissing($objectKey);
+
+    DB::beginTransaction();
+});
+
 function requirePostgresConcurrencyHarness(object $test): void
 {
     if (DB::connection()->getDriverName() !== 'pgsql') {
@@ -265,6 +403,31 @@ function isLockedMessageQuery(QueryExecuted $query): bool
 {
     return str_contains(strtolower($query->sql), 'from "messages"')
         && str_contains(strtolower($query->sql), 'for update');
+}
+
+function isCleanupReferenceQuery(QueryExecuted $query): bool
+{
+    return str_contains(strtolower($query->sql), 'from "message_attachments"');
+}
+
+function isLockedCleanupIntentQuery(QueryExecuted $query): bool
+{
+    return str_contains(strtolower($query->sql), 'from "message_blob_cleanup_intents"')
+        && str_contains(strtolower($query->sql), 'for update');
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function concurrencyEnvelopePayload(string $idempotencyKey, string $raw): array
+{
+    return Envelope::make(
+        idempotencyKey: $idempotencyKey,
+        sentAt: now()->toIso8601String(),
+        message: base64_encode($raw),
+        stream: null,
+        truncation: Truncation::None,
+    )->toArray();
 }
 
 function concurrencyMultipartMime(): string

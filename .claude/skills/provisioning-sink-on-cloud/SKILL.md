@@ -24,7 +24,7 @@ updates and variable sets; **confirm before any billable `:create`**; delegate h
 | Resource | Cloud command | Notes |
 | --- | --- | --- |
 | Application | `application:create` or the interactive bootstrap in `cli-reality.md` | One per client. Reuse the default environment; do not create a second one unless the user explicitly asks. |
-| Postgres | `database-cluster:create --type neon_serverless_postgres_18` -> `database:create <cluster> --name sink` | Holds message metadata, auth, users, and invitations. Set `DB_CONNECTION=pgsql`; `SINK_DB_*` tracks the same injected `DB_*` by default. |
+| Postgres | `database-cluster:create --type neon_serverless_postgres_18` -> `database:create <cluster> --name sink` | Holds message metadata, auth, users, and invitations. Set `DB_CONNECTION=pgsql`; leave `SINK_DB_*` unset so destructive actions and audits share the exact default connection/PDO. |
 | Redis | `cache:create --type upstash_redis --size ... --auto-upgrade-enabled=false --is-public=false` | Cache plus Redis queue connection. |
 | Object-storage bucket | Dashboard attach on cloud-cli v0.5.0 | Cloud injects a managed `private` disk and `FILESYSTEM_DISK=private`; `SINK_DISK` defaults to it. Do not hand-wire R2 secrets. |
 | Web instance | `instance:update <app-instance-id> --uses-scheduler=true --json -n --force` after sizing | Serves the inbox UI, `/ingest`, `/capabilities`, and MCP. Scheduler runs `sink:maintain`. |
@@ -59,8 +59,8 @@ Follow [reference/resource-plan.md](reference/resource-plan.md) exactly. Capture
 `connection`, and environment URL from `--json` output for later steps. High level:
 
 app/default env -> Postgres cluster + `sink` schema -> Redis cache -> bucket attach (dashboard) -> web
-instance + scheduler -> managed queue -> attach DB/cache/bucket to env -> set `DB_*`, `SINK_*`, queue,
-storage, retention, MCP, and bootstrap env vars -> deploy -> migrate -> run `create-admin` -> issue first
+instance + scheduler -> managed queue -> attach DB/cache/bucket to env -> set app, queue, storage, retention,
+MCP, and bootstrap env vars -> deploy -> migrate -> run `create-admin` -> issue first
 source-app token locally with `php artisan token:create <label>`.
 
 Use `FALLBACK_TOKEN` only as a bootstrap token. Prefer per-app tokens from `token:create` for source apps

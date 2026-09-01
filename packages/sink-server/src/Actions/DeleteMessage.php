@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Actions;
 
 use ArtisanBuild\SinkServer\Models\Message;
-use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 
@@ -40,15 +39,7 @@ final class DeleteMessage
                 return 0;
             }
 
-            $intentIds = $objectKeys->map(function (string $objectKey): int {
-                return (int) MessageBlobCleanupIntent::query()->firstOrCreate([
-                    'object_key' => $objectKey,
-                ])->getKey();
-            })->all();
-
-            $connection->afterCommit(function () use ($intentIds): void {
-                app(CleanupMessageBlobs::class)($intentIds);
-            });
+            app(QueueMessageBlobCleanup::class)($objectKeys, $connection);
 
             return $deleted;
         });

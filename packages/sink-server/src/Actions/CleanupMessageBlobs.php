@@ -26,24 +26,32 @@ final class CleanupMessageBlobs
             ->lazyById();
         $completed = 0;
         $disk = Storage::disk((string) config('sink-server.disk'));
+        $connection = (new MessageBlobCleanupIntent)->getConnection();
 
-        foreach ($intents as $intent) {
-            if (Message::query()->where('raw_object_key', $intent->object_key)->exists()
-                || MessageAttachment::query()->where('object_key', $intent->object_key)->exists()) {
-                continue;
-            }
+        foreach ($intents as $candidate) {
+            $intentId = $candidate->getKey();
 
-            try {
-                if (! $disk->delete($intent->object_key)) {
-                    continue;
+            $completed += $connection->transaction(function () use ($intentId, $disk): int {
+                $intent = MessageBlobCleanupIntent::query()->whereKey($intentId)->lockForUpdate()->first();
+
+                if (! $intent instanceof MessageBlobCleanupIntent
+                    || Message::query()->where('raw_object_key', $intent->object_key)->exists()
+                    || MessageAttachment::query()->where('object_key', $intent->object_key)->exists()) {
+                    return 0;
                 }
-            } catch (Throwable $exception) {
-                report($exception);
 
-                continue;
-            }
+                try {
+                    if (! $disk->delete($intent->object_key)) {
+                        return 0;
+                    }
+                } catch (Throwable $exception) {
+                    report($exception);
 
-            $completed += MessageBlobCleanupIntent::query()->whereKey($intent->getKey())->delete();
+                    return 0;
+                }
+
+                return MessageBlobCleanupIntent::query()->whereKey($intent->getKey())->delete();
+            });
         }
 
         return $completed;
