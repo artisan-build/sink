@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.6.1",
+            "version": "v0.6.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "2de534142f784700b2a628b69af43bc99cfe9783"
+                "reference": "06cb53c41e92bb9009000b3895ee9fa79bce0795"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/2de534142f784700b2a628b69af43bc99cfe9783",
-                "reference": "2de534142f784700b2a628b69af43bc99cfe9783",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/06cb53c41e92bb9009000b3895ee9fa79bce0795",
+                "reference": "06cb53c41e92bb9009000b3895ee9fa79bce0795",
                 "shasum": ""
             },
             "require": {
@@ -66,9 +66,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.6.1"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.6.2"
             },
-            "time": "2026-08-31T10:30:50+00:00"
+            "time": "2026-09-01T12:23:16+00:00"
         },
         {
             "name": "artisan-build/sink-contracts",

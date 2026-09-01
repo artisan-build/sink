@@ -3,13 +3,18 @@
 declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\ApiToken;
+use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
+use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
+use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
@@ -48,6 +53,8 @@ it('denies the fallback token for MCP requests including the purge tool', functi
 
     purgeToolResponseWithToken('test-token')->assertUnauthorized();
     $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
 
 it('denies an expired token for MCP requests including the purge tool', function (): void {
@@ -63,6 +70,8 @@ it('denies an expired token for MCP requests including the purge tool', function
 
     purgeToolResponseWithToken('expired-token')->assertUnauthorized();
     $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
 
 it('denies a revoked token for MCP requests including the purge tool', function (): void {
@@ -75,6 +84,8 @@ it('denies a revoked token for MCP requests including the purge tool', function 
 
     purgeToolResponseWithToken('doomed-token')->assertUnauthorized();
     $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
 
 it('counts messages and asserts expected counts across filters', function (): void {
@@ -196,12 +207,15 @@ it('matches body substrings without returning matched or body text', function ()
 
 it('purges scoped messages through the delete action and refuses unscoped purges', function (): void {
     ['secret' => $message] = seedMcpMessages();
+    $token = ApiToken::query()->where('name', 'mcp')->sole();
 
     expect(mcpTool('purge'))->toBe([
         'error' => 'refusing unscoped purge',
         'deleted' => 0,
     ]);
     $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 
     expect(mcpTool('purge', ['app' => 'alpha']))->toBe(['deleted' => 2]);
 
@@ -210,6 +224,56 @@ it('purges scoped messages through the delete action and refuses unscoped purges
     $this->assertDatabaseMissing('message_recipients', ['message_id' => $message->id], 'sink');
     Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
     Storage::disk((string) config('sink-server.disk'))->assertMissing('attachments/alpha/secret/guide.txt');
+
+    $event = AppActionEvent::query()->sole();
+    $ledger = AppActionOutboxEntry::query()->sole();
+
+    expect($event->getAttributes())->toMatchArray([
+        'action' => 'messages_purged',
+        'action_vocabulary' => SinkAction::class,
+        'reason' => AppActionReason::Requested->value,
+        'actor_type' => 'legacy_api_token',
+        'actor_ref' => (string) $token->getKey(),
+        'on_behalf_of' => null,
+    ])->and($ledger->event_id)->toBe($event->id)
+        ->and($token->refresh()->request_count)->toBe(2);
+
+    $rows = json_encode([$event->getAttributes(), $ledger->getAttributes()], JSON_THROW_ON_ERROR);
+
+    expect($rows)->not->toContain('mcp-token')
+        ->not->toContain('alpha')
+        ->not->toContain('Reset your password')
+        ->not->toContain('dev@example.test')
+        ->not->toContain('TOPSECRETBODY');
+
+    expect(mcpTool('purge', ['app' => 'alpha']))->toBe(['deleted' => 0]);
+    $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
+    expect($token->refresh()->request_count)->toBe(3);
+});
+
+it('rolls the MCP database purge back when audit recording fails', function (): void {
+    seedMcpMessages();
+
+    DB::connection('sink')->unprepared(<<<'SQL'
+        CREATE TRIGGER force_app_action_recorder_failure
+        BEFORE INSERT ON bfc_app_action_events
+        BEGIN
+            SELECT RAISE(ABORT, 'forced app-action recorder failure');
+        END
+        SQL);
+
+    try {
+        $response = mcpToolResponse('purge', ['app' => 'alpha']);
+        $response->assertOk()->assertJsonPath('result.isError', true);
+    } finally {
+        DB::connection('sink')->unprepared('DROP TRIGGER IF EXISTS force_app_action_recorder_failure');
+    }
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+    Storage::disk((string) config('sink-server.disk'))->assertMissing('raw/alpha/secret.eml');
 });
 
 it('keeps every read tool body blind', function (): void {
