@@ -119,6 +119,32 @@ test('the real UI purge route records one delegated event for the whole purge', 
         ->not->toContain('delegated-purge-two');
 });
 
+test('a co-resident local session never out-attributes the delegated acting principal on destructive routes', function (): void {
+    $admin = auditAdmin();
+    $actor = auditDelegatedActor();
+    createAuditMessage('coresident-purge-one', appName: 'audit-purge');
+    createAuditMessage('coresident-purge-two', appName: 'audit-purge');
+
+    $this->withSession([
+        Auth::guard('web')->getName() => $admin->getAuthIdentifier(),
+        ...auditDelegatedSession($actor, 'Co-resident Agency'),
+    ])
+        ->delete(route('sink.inbox.purge'), ['app' => 'audit-purge'])
+        ->assertRedirect(route('sink.inbox'));
+
+    $event = AppActionEvent::query()->sole();
+
+    expect(Message::query()->where('app', 'audit-purge')->count())->toBe(0)
+        ->and($event->getAttributes())->toMatchArray([
+            'action' => 'messages_purged',
+            'action_vocabulary' => SinkAction::class,
+            'reason' => AppActionReason::Requested->value,
+            'actor_type' => 'delegated_actor',
+            'actor_ref' => $actor->getAuthIdentifier(),
+            'on_behalf_of' => 'Co-resident Agency',
+        ]);
+});
+
 test('UI purge refusal and destructive no-ops emit no successful action event', function (): void {
     $admin = auditAdmin();
 

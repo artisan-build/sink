@@ -208,6 +208,7 @@ it('matches body substrings without returning matched or body text', function ()
 
 it('purges scoped messages through the delete action and refuses unscoped purges', function (): void {
     ['secret' => $message] = seedMcpMessages();
+    ApiToken::factory()->create(['name' => 'other', 'token_hash' => hash('sha256', 'other-token')]);
     $token = ApiToken::query()->where('name', 'mcp')->sole();
 
     expect(mcpTool('purge'))->toBe([
