@@ -25565,59 +25565,6 @@ namespace Illuminate\View {
             }
     }
 
-namespace Illuminate\Testing {
-    /**
-     * @template TResponse of \Symfony\Component\HttpFoundation\Response
-     * @mixin \Illuminate\Http\Response
-     */
-    class TestResponse {
-        /**
-         * @see \Livewire\Features\SupportTesting\SupportTesting::registerTestingMacros()
-         * @param mixed $component
-         * @static
-         */
-        public static function assertSeeLivewire($component)
-        {
-            return \Illuminate\Testing\TestResponse::assertSeeLivewire($component);
-        }
-
-        /**
-         * @see \Livewire\Features\SupportTesting\SupportTesting::registerTestingMacros()
-         * @param mixed $component
-         * @static
-         */
-        public static function assertDontSeeLivewire($component)
-        {
-            return \Illuminate\Testing\TestResponse::assertDontSeeLivewire($component);
-        }
-
-            }
-    /**
-     */
-    class TestView {
-        /**
-         * @see \Livewire\Features\SupportTesting\SupportTesting::registerTestingMacros()
-         * @param mixed $component
-         * @static
-         */
-        public static function assertSeeLivewire($component)
-        {
-            return \Illuminate\Testing\TestView::assertSeeLivewire($component);
-        }
-
-        /**
-         * @see \Livewire\Features\SupportTesting\SupportTesting::registerTestingMacros()
-         * @param mixed $component
-         * @static
-         */
-        public static function assertDontSeeLivewire($component)
-        {
-            return \Illuminate\Testing\TestView::assertDontSeeLivewire($component);
-        }
-
-            }
-    }
-
 
 namespace  {
     class App extends \Illuminate\Support\Facades\App {}
