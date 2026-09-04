@@ -9,6 +9,8 @@ messages and posts them to a self-hosted Sink server instead of delivering them 
 
 ## Installation
 
+Follow the [default integration guide](docs/integrate/default.md) for an agent-ready setup and verification flow.
+
 ```bash
 composer require artisan-build/sink-client
 ```
