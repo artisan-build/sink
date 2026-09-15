@@ -152,7 +152,7 @@ done
 php_run artisan sink:maintain --no-interaction > "$EVIDENCE_DIR/scheduler.log" 2>&1 || die "The local scheduler maintenance probe failed."
 printf 'scheduler_process=alive maintenance_command=passed\n' >> "$EVIDENCE_DIR/scheduler.log"
 
-if ! mint_output="$(php_run artisan bfc:credential:mint installation sink-verify-installation --kind=bearer --purpose=sink.mcp --abilities=mcp --name=verify-mcp --local --no-interaction)"; then
+if ! mint_output="$(php_run artisan bfc:credential:mint installation sink-verify-installation --kind=bearer --purpose=mcp --abilities=mcp --name=verify-mcp --local --no-interaction)"; then
 	die "The local MCP credential mint failed."
 fi
 mcp_credential="${mint_output##*shown once: }"

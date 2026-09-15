@@ -37,4 +37,7 @@ for surface in \
 	fi
 done
 
+grep -q -- '--purpose=consumption --abilities=consumption' "$HARNESS_DIR/send-message.sh" || fail 'ingest mint does not use the mapped consumption purpose'
+grep -q -- '--purpose=mcp --abilities=mcp' "$HARNESS_DIR/launch.sh" || fail 'MCP mint does not use the mapped MCP purpose'
+
 printf 'ok run-unique secrets, destructive-name guards, and supported credential docs\n'

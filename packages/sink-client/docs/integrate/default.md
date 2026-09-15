@@ -41,7 +41,7 @@ For a source app hosted on Laravel Cloud or Forge, use Scalpels' `connect_site` 
 For other hosting, have the Sink operator mint an installation-owned bearer credential with purpose `sink.ingest` mapped to capability `consumption`:
 
 ```bash
-php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.ingest --abilities=consumption --name=<source-app> --local
+php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --abilities=consumption --name=<source-app> --local
 ```
 
 For an MCP client, use purpose `sink.mcp` mapped to capability `mcp`. Move the one-time value directly into the source app's secret manager or enter it in the masked prompt from:

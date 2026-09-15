@@ -89,7 +89,7 @@ Give the user exact copy-paste commands and wait for them to report completion b
 ## Step 6 - Hand off the source-app setup
 
 - In the target installation, mint the first source-app credential with
-  `php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.ingest --abilities=consumption --name=<source-app> --local`.
+  `php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --abilities=consumption --name=<source-app> --local`.
   Transfer the shown-once plaintext directly into the destination secret manager or masked installer prompt.
 - In the source app: `composer require artisan-build/sink-client` then
   `php artisan sink:install --url=https://<env-url> --token=<plaintext-token>`. Set `MAIL_MAILER=sink` only
