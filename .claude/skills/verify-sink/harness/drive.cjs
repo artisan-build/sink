@@ -162,21 +162,14 @@ async function runViewport(browser, viewport) {
         lastStatus = response ? response.status() : null
 			record({ viewport, verb, detail: `${absoluteUrl(value)} -> ${lastStatus}` }, secrets)
       } else if (verb === 'login') {
-        const response = await page.goto(absoluteUrl('/login'), { waitUntil: 'domcontentloaded' })
+        const response = await page.goto(absoluteUrl('/bfc/managed/login'), { waitUntil: 'domcontentloaded' })
         lastStatus = response ? response.status() : null
-        await page.getByLabel('Email address', { exact: true }).fill(value.email)
-        await page.getByLabel('Password', { exact: true }).fill(value.password)
-        await page.locator('[data-test="login-button"]').click()
         try {
-          await page.waitForURL((url) => !String(url).includes('/login'), { timeout: 15000 })
+          await page.waitForURL((url) => !String(url).includes('/bfc/managed/login'), { timeout: 15000 })
         } catch {
-          const body = await page.textContent('body').catch(() => '')
-          if (String(body).includes('Too Many Requests') || String(body).includes('429')) {
-            await fail(verb, 'Fortify login throttle returned HTTP 429; wait one minute or relaunch')
-          }
-          await fail(verb, `login remained at ${page.url()}`)
+          await fail(verb, `managed login remained at ${page.url()}`)
         }
-			record({ viewport, verb, detail: `${value.email} -> ${page.url()}` }, secrets)
+			record({ viewport, verb, detail: `managed authority -> ${page.url()}` }, secrets)
 		} else if (verb === 'fill') {
 			await page.locator(value.selector).fill(value.value)
 			record({ viewport, verb, detail: value.selector }, secrets)

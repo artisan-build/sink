@@ -30,7 +30,7 @@ $binding = static fn (): array => [
     'connection_id' => 'sink-verify-connection',
     'organization_id' => 'sink-verify-organization',
     'installation_id' => 'sink-verify-installation',
-    'authority_generation' => 1,
+    'authority_generation' => 2,
     'roster_version' => 1,
     'response_sequence' => 1,
     'responded_at' => gmdate(DATE_ATOM),
