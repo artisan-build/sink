@@ -44,6 +44,7 @@ if grep -Eq -- '--purpose=(consumption|mcp).*--abilities=' "$HARNESS_DIR/send-me
 fi
 grep -q "whereKey((int) \$messageKey)" "$HARNESS_DIR/send-message.php" || fail 'ingest proof does not follow the accepted message id'
 grep -q "100 Continue" "$HARNESS_DIR/authority-stub.php" || fail 'managed authority cannot accept Guzzle request bodies'
+grep -q 'while (true)' "$HARNESS_DIR/authority-stub.php" || fail 'managed authority exits after an idle accept timeout'
 grep -q 'managed_login_status.*302' "$HARNESS_DIR/launch.sh" || fail 'HTTP authority mode is not checked before browser verification'
 
 printf 'ok run-unique secrets, destructive-name guards, and supported credential docs\n'

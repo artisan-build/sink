@@ -36,7 +36,12 @@ $binding = static fn (): array => [
     'responded_at' => gmdate(DATE_ATOM),
 ];
 
-while ($connection = @stream_socket_accept($server, 1)) {
+while (true) {
+    $connection = @stream_socket_accept($server, 1);
+    if ($connection === false) {
+        continue;
+    }
+
     $requestLine = trim((string) fgets($connection));
     $headers = [];
     while (($line = fgets($connection)) !== false && trim($line) !== '') {

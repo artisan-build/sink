@@ -29,9 +29,14 @@ DB::table('bfc_authority')->where('key', InstallationAuthority::KEY)->update([
     'installation_id' => 'sink-verify-installation',
     'authority_base_url' => 'https://127.0.0.1:'.getenv('VERIFY_AUTHORITY_PORT'),
 ]);
-$connection = ManagedAuthConnection::current();
-$probe = Http::withOptions(['verify' => $connection->caBundle])
-    ->get($connection->baseUrl.'/not-found');
+try {
+    $connection = ManagedAuthConnection::current();
+    $probe = Http::withOptions(['verify' => $connection->caBundle])
+        ->get($connection->baseUrl.'/not-found');
+} catch (Throwable) {
+    fwrite(STDERR, "Disposable managed authority connection probe failed.\n");
+    exit(1);
+}
 
 if ($probe->status() !== 401) {
     fwrite(STDERR, "Disposable managed authority TLS probe was not refused as expected.\n");
