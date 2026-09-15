@@ -10,7 +10,6 @@ that covers one entry point must not claim coverage for the others.
 | Invitation-only access | [invitation-access.md](invitation-access.md) | Fully local; admin creation and invited acceptance |
 | Inbox | [inbox.md](inbox.md) | Fully local with real HTTP ingest and database queue |
 | Message inspection | [message-inspection.md](message-inspection.md) | Basic HTML message local; attachment recipe requires attachment MIME |
-| Account settings | [account-settings.md](account-settings.md) | Profile/appearance/password/2FA local; passkeys need a virtual authenticator |
 
 `driven YYYY-MM-DD` means the named entry point was actually exercised on a real disposable instance.
 Anything else is a recipe, not proof.

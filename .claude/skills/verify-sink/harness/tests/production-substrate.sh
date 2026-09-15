@@ -37,6 +37,8 @@ for surface in \
 	fi
 done
 
+[ ! -e "$APP_DIR/.claude/skills/verify-sink/features/account-settings.md" ] || fail 'retired Sink-owned profile and self-delete recipe remains supported'
+
 grep -q -- '--purpose=consumption --name=' "$HARNESS_DIR/send-message.sh" || fail 'ingest mint does not use the mapped consumption purpose'
 grep -q -- '--purpose=mcp --name=' "$HARNESS_DIR/launch.sh" || fail 'MCP mint does not use the mapped MCP purpose'
 if grep -Eq -- '--purpose=(consumption|mcp).*--abilities=' "$HARNESS_DIR/send-message.sh" "$HARNESS_DIR/launch.sh"; then
