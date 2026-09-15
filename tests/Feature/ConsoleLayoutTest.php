@@ -22,7 +22,7 @@ test('production roots use the Sink layout and package authentication middleware
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $membersMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.members.index'));
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.10.0')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.11.0')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
         ->and(config('livewire.component_layout'))->toBe('layouts.app')
         ->and(realpath(view()->getFinder()->find('layouts.app')))
