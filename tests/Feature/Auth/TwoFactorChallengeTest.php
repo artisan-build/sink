@@ -1,28 +1,19 @@
 <?php
 
-use App\Models\User;
-use Laravel\Fortify\Features;
+declare(strict_types=1);
 
-beforeEach(function (): void {
-    $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
+
+test('Sink does not expose two factor authentication', function (): void {
+    expect(Route::has('two-factor.login'))->toBeFalse();
+
+    $this->get('/two-factor-challenge')->assertNotFound();
+    $this->post('/two-factor-challenge', ['code' => '123456'])->assertNotFound();
 });
 
-test('two factor challenge redirects to login when not authenticated', function (): void {
-    $response = $this->get(route('two-factor.login'));
-
-    $response->assertRedirect(route('login'));
-});
-
-test('two factor challenge can be rendered', function (): void {
-    Features::twoFactorAuthentication([
-        'confirm' => true,
-        'confirmPassword' => true,
-    ]);
-
-    $user = User::factory()->withTwoFactor()->create();
-
-    $this->post(route('login.store'), [
-        'email' => $user->email,
-        'password' => 'password',
-    ])->assertRedirect(route('two-factor.login'));
+test('package users have no two factor authentication state', function (): void {
+    expect(Schema::hasColumn('users', 'two_factor_secret'))->toBeFalse()
+        ->and(Schema::hasColumn('users', 'two_factor_recovery_codes'))->toBeFalse()
+        ->and(Schema::hasColumn('users', 'two_factor_confirmed_at'))->toBeFalse();
 });
