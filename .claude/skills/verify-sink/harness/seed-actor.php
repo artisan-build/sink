@@ -3,7 +3,7 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
+use ArtisanBuild\BuiltForCloud\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 
@@ -42,12 +42,12 @@ $user->forceFill([
     'email' => $email,
     'password' => $password,
     'email_verified_at' => now(),
-    'is_admin' => isset($options['admin']),
+    'role' => isset($options['admin']) ? 'admin' : 'member',
 ])->save();
 
 echo json_encode([
     'database' => $database,
     'user_id' => $user->getKey(),
     'email' => $user->email,
-    'is_admin' => $user->is_admin,
+    'role' => $user->role,
 ], JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR).PHP_EOL;

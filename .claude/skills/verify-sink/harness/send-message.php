@@ -3,10 +3,8 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\TokenGenerator;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Contracts\Console\Kernel;
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -35,7 +33,6 @@ if ($defaultDatabase !== $database || $sinkDatabase !== $database) {
     exit(2);
 }
 
-$sourceApp = (string) ($options['app'] ?? 'verify-source');
 $recipient = (string) ($options['recipient'] ?? 'recipient@verify.test');
 $subject = (string) ($options['subject'] ?? 'Verification message');
 $idempotencyKey = (string) Str::ulid();
@@ -49,15 +46,9 @@ $raw = "From: Verify Sender <sender@verify.test>\r\n".
     '<html><body><h1>'.htmlspecialchars($subject, ENT_QUOTES | ENT_HTML5).'</h1>'.
     '<p>Captured by the isolated Sink verifier.</p><a href="https://example.test/verify">Verification link</a></body></html>';
 
-$generated = app(TokenGenerator::class)->generate();
-Artisan::call('token:create', [
-    'name' => $sourceApp,
-    '--execute' => true,
-    '--hash' => $generated->hash,
-    '--no-interaction' => true,
-]);
-if (Artisan::output() === '') {
-    fwrite(STDERR, "The local token command did not confirm token creation.\n");
+$credential = (string) getenv('VERIFY_INGEST_CREDENTIAL');
+if ($credential === '') {
+    fwrite(STDERR, "The one-time ingest credential is unavailable.\n");
     exit(1);
 }
 
@@ -74,7 +65,7 @@ $context = stream_context_create([
     'http' => [
         'method' => 'POST',
         'header' => [
-            'Authorization: Bearer '.$generated->plaintext,
+            'Authorization: Bearer '.$credential,
             'Content-Type: application/json',
             'Content-Length: '.strlen($payload),
         ],
@@ -90,11 +81,18 @@ if (! str_contains($statusLine, ' 202 ')) {
     exit(1);
 }
 
+$response = json_decode((string) $responseBody, true);
+$messageKey = is_array($response) ? ($response['id'] ?? null) : null;
+if (! is_int($messageKey) && ! (is_string($messageKey) && ctype_digit($messageKey))) {
+    fwrite(STDERR, "POST /ingest did not return a message id.\n");
+    exit(1);
+}
+
 $deadline = microtime(true) + 20;
 do {
     usleep(200000);
     $message = Message::query()
-        ->where('app', $sourceApp)
+        ->whereKey((int) $messageKey)
         ->where('idempotency_key', $idempotencyKey)
         ->first();
 } while (($message === null || $message->parsed_at === null) && microtime(true) < $deadline);

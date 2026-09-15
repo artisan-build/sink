@@ -1,6 +1,6 @@
 ---
 name: provisioning-sink-on-cloud
-description: "Deploy, provision, set up, or stand up a self-hosted Sink mail-capture instance on Laravel Cloud with the `cloud` CLI. Gathers expected mail volume as a small/medium/large tier, recommends and only after confirmation provisions the matching isolated environment resources (Postgres, Redis, object-storage bucket, web instance, managed queue, scheduler), wires SINK_* config, deploys, migrates, runs create-admin, and issues the first source-app token. Use when the user wants to deploy, provision, set up, or stand up a Sink server / instance / environment on Laravel Cloud, fork-and-deploy Sink for a client, or onboard a new client's Sink environment."
+description: "Deploy, provision, set up, or stand up a self-hosted Sink mail-capture instance on Laravel Cloud with the `cloud` CLI. Gathers expected mail volume as a small/medium/large tier, recommends and only after confirmation provisions the matching isolated environment resources (Postgres, Redis, object-storage bucket, web instance, managed queue, scheduler), wires SINK_* config, deploys, migrates, runs create-admin, and issues installation-owned credentials. Use when the user wants to deploy, provision, set up, or stand up a Sink server / instance / environment on Laravel Cloud, fork-and-deploy Sink for a client, or onboard a new client's Sink environment."
 ---
 
 # Provisioning Sink on Laravel Cloud
@@ -60,11 +60,8 @@ Follow [reference/resource-plan.md](reference/resource-plan.md) exactly. Capture
 
 app/default env -> Postgres cluster + `sink` schema -> Redis cache -> bucket attach (dashboard) -> web
 instance + scheduler -> managed queue -> attach DB/cache/bucket to env -> set app, queue, storage, retention,
-MCP, and bootstrap env vars -> deploy -> migrate -> run `create-admin` -> issue first
-source-app token locally with `php artisan token:create <label>`.
-
-Use `FALLBACK_TOKEN` only as a bootstrap token. Prefer per-app tokens from `token:create` for source apps
-and MCP clients, then remove `FALLBACK_TOKEN` for production if the team no longer needs it.
+MCP env vars -> deploy -> migrate -> run `create-admin` -> mint installation-owned credentials.
+Use `sink.ingest => consumption` for source apps and `sink.mcp => mcp` for MCP clients.
 
 ## Step 4 - Verify functionally
 
@@ -91,14 +88,13 @@ Give the user exact copy-paste commands and wait for them to report completion b
 
 ## Step 6 - Hand off the source-app setup
 
-- Issue the first token from the operator's machine, in the Sink app clone with `.cloud/config.json` bound and
-  an authenticated `cloud` CLI: `php artisan token:create <label>`. The label is a human-readable token label
-  such as the source app's name; it is not a deployed application id. This driver command generates the
-  plaintext locally, stores only the hash in the deployed environment for you, and prints the plaintext once.
+- In the target installation, mint the first source-app credential with
+  `php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --name=<source-app> --local`.
+  Transfer the shown-once plaintext directly into the destination secret manager or masked installer prompt.
 - In the source app: `composer require artisan-build/sink-client` then
   `php artisan sink:install --url=https://<env-url> --token=<plaintext-token>`. Set `MAIL_MAILER=sink` only
   in environments where mail should be captured.
-- Connect an agent to MCP at `https://<env-url>/<SINK_MCP_PATH>` with `Authorization: Bearer <token>`.
+- Mint MCP access separately with `sink.mcp => mcp`; do not reuse an ingest credential.
 
 ## Step 7 - Scale later
 

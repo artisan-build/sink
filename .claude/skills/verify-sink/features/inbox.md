@@ -12,7 +12,7 @@
 ## How to get to it (user POV)
 
 - Use the Inbox sidebar link after login.
-- Visit `/inbox` directly; guests are redirected to `/login`.
+- Visit `/inbox` directly; guests enter through `/bfc/managed/login`.
 - Return from a message with the Back to inbox button.
 - Admins see Purge filtered scope after entering at least one filter.
 
@@ -91,5 +91,5 @@ Status: **recipe, not yet driven**.
 - The table itself intentionally has an `overflow-x-auto` wrapper. Page-level horizontal overflow is
   still a failure.
 - Purge is admin-only and refuses an unscoped request with 422. Never work around that guard.
-- `send-message.sh` proves Postgres and the database queue, but not production managed-queue or object
-  storage behavior.
+- `send-message.sh` proves Postgres, Redis queue processing, and S3 behavior against private MinIO,
+  but not Cloud-managed service latency or failure behavior.

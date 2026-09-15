@@ -14,6 +14,11 @@ die() { printf '\033[31mFAIL\033[0m  %s\n' "$*" >&2; exit 1; }
 ok() { printf '\033[32mok\033[0m    %s\n' "$*"; }
 note() { printf '      %s\n' "$*"; }
 
+record_run_pid() {
+	local name="$1" pid="$2"
+	perl -pi -e "s/^${name}=.*\$/${name}=${pid}/" "$RUN_DIR/run.env"
+}
+
 git_tree_is_exact_commit() {
 	local directory="${1:-$APP_DIR}" status
 	status="$(git -C "$directory" status --porcelain=v1 --untracked-files=normal --ignore-submodules=none)" || return 1
@@ -81,6 +86,19 @@ bind_run_connection() {
 load_run() {
 	load_run_metadata
 	bind_run_connection
+	bind_run_secrets
+}
+
+bind_run_secrets() {
+	if [ -z "${RUN_SECRET_:-}" ]; then
+		[ -p "${RUN_SECRET_PIPE:-}" ] || die "The run's in-memory secret pipe is unavailable."
+		IFS= read -r -t 2 RUN_SECRET_ < "$RUN_SECRET_PIPE" || die "The run's in-memory secret keeper did not answer."
+	fi
+	REDIS_PASSWORD_="$(printf '%s' "redis:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	MINIO_ACCESS_KEY_="verify$(printf '%s' "minio-user:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print substr($2,1,16)}')"
+	MINIO_SECRET_KEY_="$(printf '%s' "minio:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	AUTHORITY_SECRET_="$(printf '%s' "authority:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	AUTHORITY_CODE_="$(printf '%s' "code:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
 }
 
 export_run_env() {
@@ -104,14 +122,29 @@ export_run_env() {
 	export SINK_DB_DATABASE="$DB_NAME"
 	export SINK_DB_USERNAME="$PGUSER_"
 	export SINK_DB_PASSWORD="$PGPASS_"
-	export SESSION_DRIVER=database
+	export SESSION_DRIVER=redis
+	export SESSION_CONNECTION=default
 	export SESSION_COOKIE="sink_verify_${RUN_ID}"
-	export CACHE_STORE=database
-	export QUEUE_CONNECTION=database
-	export SINK_QUEUE_CONNECTION=database
+	export CACHE_STORE=redis
+	export QUEUE_CONNECTION=redis
+	export SINK_QUEUE_CONNECTION=redis
+	export REDIS_HOST=127.0.0.1
+	export REDIS_PORT="$REDIS_PORT_"
+	export REDIS_PASSWORD="$REDIS_PASSWORD_"
+	export REDIS_DB=0
+	export REDIS_CACHE_DB=1
+	export REDIS_PREFIX="sink_verify_${RUN_ID}_"
 	export MAIL_MAILER=log
-	export FILESYSTEM_DISK=local
-	export SINK_DISK=local
+	export FILESYSTEM_DISK=s3
+	export SINK_DISK=s3
+	export AWS_ACCESS_KEY_ID="$MINIO_ACCESS_KEY_"
+	export AWS_SECRET_ACCESS_KEY="$MINIO_SECRET_KEY_"
+	export AWS_DEFAULT_REGION=us-east-1
+	export AWS_BUCKET="$MINIO_BUCKET"
+	export AWS_ENDPOINT="http://127.0.0.1:$MINIO_PORT"
+	export AWS_USE_PATH_STYLE_ENDPOINT=true
+	export BUILT_FOR_CLOUD_MANAGED_CLIENT_SECRET="$AUTHORITY_SECRET_"
+	export BUILT_FOR_CLOUD_MANAGED_CA_BUNDLE="$AUTHORITY_CERT"
 	export LOG_CHANNEL=stderr
 	export LOG_STACK=stderr
 	export LARAVEL_STORAGE_PATH="$RUN_DIR/storage"
@@ -124,4 +157,9 @@ php_run() {
 
 assert_disposable_database_name() {
 	[[ "${DB_NAME:-}" =~ ^sink_verify_[a-z0-9_]+$ ]] || die "Refusing database '${DB_NAME:-unset}': expected sink_verify_[a-z0-9_]+."
+}
+
+assert_disposable_resource_names() {
+	[[ "${MINIO_CONTAINER:-}" =~ ^sink-verify-minio-[a-z0-9-]+$ ]] || die "Refusing MinIO container '${MINIO_CONTAINER:-unset}'."
+	[[ "${MINIO_BUCKET:-}" =~ ^sink-verify-[a-z0-9-]+$ ]] || die "Refusing MinIO bucket '${MINIO_BUCKET:-unset}'."
 }

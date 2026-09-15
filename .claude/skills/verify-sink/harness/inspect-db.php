@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\Invitation;
 use ArtisanBuild\SinkServer\Models\Message;
-use App\Models\User;
+use ArtisanBuild\BuiltForCloud\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -61,7 +61,7 @@ if (isset($options['invitation-prefix'])) {
         'id' => $user->getKey(),
         'name' => $user->name,
         'email' => $user->email,
-        'is_admin' => $user->is_admin,
+        'role' => $user->role,
         'email_verified_at' => $user->email_verified_at?->toIso8601String(),
     ])->all();
     $result['count'] = $users->count();

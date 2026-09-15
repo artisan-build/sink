@@ -64,8 +64,6 @@ and a successful deploy prove they are attached. Verify functionally:
   attached storage config and the app is deployed.
 - Leave `SINK_DB_*` unset by default so Sink reuses the exact injected default connection/PDO. Set all five only
   when a user explicitly wants a separate metadata database.
-- `FALLBACK_TOKEN` is a bootstrap convenience. For production hand-off, issue per-app tokens from the operator's
-  machine with `php artisan token:create <label>` in the Sink app clone where `.cloud/config.json` is bound and
-  the `cloud` CLI is authenticated. `<label>` is a human token label, such as the source app's name, not a
-  deployed application id. The driver command stores only the hash in the deployed environment and prints the
-  plaintext once for source apps and MCP clients.
+- Credentials belong to the Sink installation. Mint separate bearer credentials with the closed mappings
+  `sink.ingest => consumption` and `sink.mcp => mcp`; every state-changing Built for Cloud command operating
+  inside that installation must include `--local`. Transfer each shown-once secret directly to its destination.

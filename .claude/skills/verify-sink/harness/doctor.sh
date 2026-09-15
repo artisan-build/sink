@@ -23,21 +23,18 @@ descends_from() {
 }
 
 session_rows() {
-	php -r '
-try {
-    $pdo = new PDO(sprintf("pgsql:host=%s;port=%s;dbname=%s", getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_DATABASE")), getenv("DB_USERNAME"), getenv("DB_PASSWORD"), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    echo (int) $pdo->query("select count(*) from sessions")->fetchColumn();
-} catch (Throwable) {
-    echo "";
-}
-'
+	redis-cli -h 127.0.0.1 -p "$REDIS_PORT_" -a "$REDIS_PASSWORD_" --no-auth-warning dbsize 2>/dev/null || true
 }
 
 printf 'run %s -> %s\n\n' "$RUN_ID" "$RUN_DIR"
 
 if kill -0 "$SERVER_PID" 2>/dev/null; then ok "server pid $SERVER_PID alive"; else check_fail "server pid $SERVER_PID is gone"; fi
 if kill -0 "$SERVER_LOG_PID" 2>/dev/null; then ok "redacting server-log pid $SERVER_LOG_PID alive"; else check_fail "redacting server-log pid $SERVER_LOG_PID is gone"; fi
-if kill -0 "$WORKER_PID" 2>/dev/null; then ok "database queue worker pid $WORKER_PID alive"; else check_fail "queue worker pid $WORKER_PID is gone"; fi
+if kill -0 "$WORKER_PID" 2>/dev/null; then ok "Redis queue worker pid $WORKER_PID alive"; else check_fail "queue worker pid $WORKER_PID is gone"; fi
+if kill -0 "$SCHEDULER_PID" 2>/dev/null; then ok "scheduler pid $SCHEDULER_PID alive"; else check_fail "scheduler pid $SCHEDULER_PID is gone"; fi
+if kill -0 "$REDIS_PID" 2>/dev/null; then ok "isolated Redis pid $REDIS_PID alive"; else check_fail "Redis pid $REDIS_PID is gone"; fi
+if kill -0 "$AUTHORITY_PID" 2>/dev/null; then ok "managed-authority stub pid $AUTHORITY_PID alive"; else check_fail "authority pid $AUTHORITY_PID is gone"; fi
+if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then ok "private MinIO container $MINIO_CONTAINER alive"; else check_fail "MinIO container is gone"; fi
 
 code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/up" 2>/dev/null || true)"
 if [ "$code" = "200" ]; then ok "$BASE_URL/up -> 200"; else check_fail "$BASE_URL/up -> ${code:-no response}"; fi
@@ -75,34 +72,33 @@ else
 fi
 
 sessions_before="$(session_rows)"
-curl -sS -o /dev/null -c "$RUN_DIR/.doctor-cookies" "$BASE_URL/login" 2>/dev/null || true
+curl -sS -o /dev/null -c "$RUN_DIR/.doctor-cookies" "$BASE_URL/bfc/managed/login" 2>/dev/null || true
 sessions_after="$(session_rows)"
 rm -f "$RUN_DIR/.doctor-cookies"
 if [ -n "$sessions_before" ] && [ -n "$sessions_after" ] && [ "$sessions_after" -gt "$sessions_before" ]; then
-	ok "serving process wrote a session to $DB_NAME ($sessions_before -> $sessions_after)"
+	ok "serving process wrote a session to isolated Redis ($sessions_before -> $sessions_after)"
 else
-	check_fail "anonymous /login did not increase sessions in $DB_NAME (${sessions_before:-unreadable} -> ${sessions_after:-unreadable})"
+	check_fail "managed login did not increase isolated Redis keys (${sessions_before:-unreadable} -> ${sessions_after:-unreadable})"
 fi
 
-queue_counts="$(php -r '
-try {
-    $pdo = new PDO(sprintf("pgsql:host=%s;port=%s;dbname=%s", getenv("DB_HOST"), getenv("DB_PORT"), getenv("DB_DATABASE")), getenv("DB_USERNAME"), getenv("DB_PASSWORD"), [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-    printf("%d|%d", (int) $pdo->query("select count(*) from jobs")->fetchColumn(), (int) $pdo->query("select count(*) from failed_jobs")->fetchColumn());
-} catch (Throwable) {
-    exit(1);
-}
-' 2>/dev/null || true)"
-IFS='|' read -r queued_count failed_count <<< "$queue_counts"
-if [ -n "$queued_count" ] && [ -n "$failed_count" ]; then ok "database queue readable: queued=$queued_count failed=$failed_count"; else check_fail "queue tables are unreadable"; fi
+if redis-cli -h 127.0.0.1 -p "$REDIS_PORT_" -a "$REDIS_PASSWORD_" --no-auth-warning ping 2>/dev/null | grep -q PONG; then ok "shared Redis for sessions, cache, and queue is reachable"; else check_fail "Redis is unreachable"; fi
 
-if [ "$LARAVEL_STORAGE_PATH" = "$RUN_DIR/storage" ] && [ "$SESSION_DRIVER" = database ] && [ "$CACHE_STORE" = database ] && [ "$QUEUE_CONNECTION" = database ] && [ "$SINK_QUEUE_CONNECTION" = database ] && [ "$MAIL_MAILER" = log ] && [ "$FILESYSTEM_DISK" = local ] && [ "$SINK_DISK" = local ]; then
-	ok "safe drivers forced: PostgreSQL-backed state, database queue, local run storage, log mail"
+if [ "$LARAVEL_STORAGE_PATH" = "$RUN_DIR/storage" ] && [ "$SESSION_DRIVER" = redis ] && [ "$CACHE_STORE" = redis ] && [ "$QUEUE_CONNECTION" = redis ] && [ "$SINK_QUEUE_CONNECTION" = redis ] && [ "$MAIL_MAILER" = log ] && [ "$FILESYSTEM_DISK" = s3 ] && [ "$SINK_DISK" = s3 ]; then
+	ok "production-equivalent drivers forced: Redis state/queue, private S3-compatible storage, log mail"
 else
 	check_fail "one or more safe driver overrides are missing"
 fi
 
+if grep -q '"parsed_at": "' "$EVIDENCE_DIR/ingest.json" 2>/dev/null && grep -q 'ParseMessage.*DONE' "$RUN_DIR/worker.log" 2>/dev/null; then
+	ok "ingest object was written to and parsed back from the private S3-compatible bucket"
+else
+	check_fail "S3-compatible ingest object proof is incomplete"
+fi
+if grep -q '"path":"/managed-auth/v1/handoffs".*"verdict":"accepted"' "$EVIDENCE_DIR/managed-authority.jsonl" && grep -q 'exchange.*accepted' "$EVIDENCE_DIR/managed-authority.jsonl"; then ok "managed handoff and exchange reached the disposable authority"; else check_fail "managed-auth wire evidence is incomplete"; fi
+if grep -q 'method=initialize verdict=passed' "$EVIDENCE_DIR/mcp.log"; then ok "MCP initialize passed over loopback HTTP"; else check_fail "MCP evidence is incomplete"; fi
+
 printf '\n      credential names visible to the application (values never read):\n'
-for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN POSTMARK_API_KEY RESEND_API_KEY MAIL_USERNAME MAIL_PASSWORD FALLBACK_TOKEN; do
+for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN REDIS_PASSWORD BUILT_FOR_CLOUD_MANAGED_CLIENT_SECRET POSTMARK_API_KEY RESEND_API_KEY MAIL_USERNAME MAIL_PASSWORD; do
 	where=""
 	grep -qx "$name" "$RUN_DIR/launched.env" 2>/dev/null && where="run environment"
 	if grep -qE "^${name}=.+" "$APP_DIR/.env" 2>/dev/null; then where="${where:+$where + }checkout .env"; fi

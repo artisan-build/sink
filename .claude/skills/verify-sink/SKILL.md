@@ -1,6 +1,6 @@
 ---
 name: verify-sink
-description: Use when verifying Sink's real Livewire web UI, invitation-only access, inbox, or message views in a browser. Launches an isolated Sink instance on disposable PostgreSQL and a unique port, drives mapped user paths with muted Playwright, captures UI and database evidence, and cleans up without touching the developer's Herd site or database.
+description: Use when verifying Sink's real Livewire web UI, unified authentication, inbox, or message views. Launches an isolated production-equivalent instance on disposable PostgreSQL, Redis, MinIO, and loopback ports, captures secret-safe evidence, and cleans exact run resources.
 ---
 
 # verify-sink
@@ -19,9 +19,9 @@ database, chooses a free loopback port, forces both Laravel's default connection
 `sink` connection to that database, and places storage, logs, Playwright, screenshots, and runtime
 state outside the repository under `~/.cache/sink-verify`.
 
-The run forces the local filesystem, database queue, database cache, database sessions, log mailer,
-and muted headless Chromium. It does not send mail, play audio, use S3, or call another app. Do not
-change those safe overrides to match a production credential during ordinary verification.
+The run uses isolated Redis for sessions, cache, and queue, a private MinIO bucket through the S3
+adapter, real queue and scheduler processes, log mail, muted Chromium, and a disposable TLS
+managed-authority stub. It reaches only loopback and never uses external Scalpels or live credentials.
 
 ## Where things go
 
@@ -32,6 +32,7 @@ change those safe overrides to match a production credential during ordinary ver
 ├── current-run                   current run id
 └── runs/<run-id>/
     ├── run.env                   non-secret run identity, port, PIDs, SHA, exact-tree provenance, database, PostgreSQL host/port/user, and credential reference
+    ├── run-secret.pipe           runtime-only FIFO served by the recorded secret-keeper process
     ├── launched.env              exported variable names only, never values
     ├── server.log                 request log with invitation routes redacted before disk
     ├── worker.log
@@ -55,8 +56,8 @@ Launch one disposable instance:
 .claude/skills/verify-sink/harness/launch.sh
 ```
 
-Launch creates and migrates PostgreSQL, starts `php -S` directly with four request workers, starts a
-real database queue worker, waits for `/up`, and runs Doctor. It deliberately does **not** use
+Launch creates and migrates PostgreSQL, starts Redis, MinIO, `php -S`, a real Redis queue worker and
+scheduler, and proves HTTP, MCP, CLI, S3, ingest/queue, and managed-auth browser behavior. It does **not** use
 `php artisan serve`: that command filters the environment before starting `php -S` and can silently
 serve the checkout's own database.
 
@@ -103,16 +104,14 @@ Doctor checks all of the following and exits non-zero if any check fails:
 3. Every process listening on the recorded port descends from the recorded server PID.
 4. The checkout is still at the launch SHA and remains free of tracked modifications and standard untracked files.
 5. PostgreSQL reports the recorded database for both the default and named `sink` connections.
-6. A real anonymous `/login` request increases the session-row count in this run's database. This is
-   the behavioral proof that the serving process received the run environment.
-7. The database worker is alive and the queue/failed-job tables are readable.
-8. Safe filesystem, mail, queue, cache, and session drivers are in force.
+6. A real `/bfc/managed/login` request increases this run's isolated Redis keys.
+7. The Redis worker and scheduler are alive; maintenance completed.
+8. Redis, private S3-compatible storage, log mail, and managed authority overrides are in force.
 9. Playwright and the isolated Chromium executable are present.
 
-Doctor writes `evidence/doctor.log`. It reports only credential **names** visible from the run's
-exported-name list and the checkout's `.env`; it never reads or prints their values. Because the run
-forces `SINK_DISK=local` and `MAIL_MAILER=log`, AWS and mail credentials remain unreachable even if
-their names are present.
+Doctor writes `evidence/doctor.log`. It reports only credential **names** and verdicts, never values.
+Disposable service credentials derive from a random value held by the recorded secret-keeper process;
+the value is served only through a mode-0600 FIFO and is absent from files and evidence.
 
 Run Doctor again after anything surprising and before trusting further evidence.
 
@@ -134,8 +133,8 @@ Create a real captured message through authenticated `POST /ingest` when an inbo
 
 Both helpers refuse to run unless the default and named `sink` connections identify the current
 `sink_verify_*` database. Seeding is a precondition, not proof of the feature being tested. The message
-helper uses the real local token command, real HTTP ingest route, real database queue, and waits for the
-parse side effect; it never writes the plaintext bearer token to disk or stdout.
+helper uses `bfc:credential:mint` with `sink.ingest => consumption` and `--local`, real HTTP ingest,
+Redis queue processing, and S3 storage; it never writes the bearer credential to disk or stdout.
 
 Write a JSON step file under the current run and run it at desktop and mobile widths:
 
@@ -201,12 +200,9 @@ RUN="$HOME/.cache/sink-verify/runs/$(cat "$HOME/.cache/sink-verify/current-run")
   | tee "$RUN/evidence/user-db.json"
 ```
 
-The harness is closer to production than `phpunit.xml`: it uses PostgreSQL, database sessions,
-database cache, and a real queue worker, while tests pin SQLite, array sessions/cache, and the sync
-queue. The named differences from production are important: this run uses the database queue instead
-of Laravel Cloud's managed queue, local disk instead of object storage, and log mail instead of an
-outbound mail transport. It proves application behavior on PostgreSQL, not Redis/S3 latency, partial
-failure, bucket policy, or managed-queue delivery.
+The harness uses PostgreSQL, shared Redis-backed sessions/cache/queue, the S3 adapter against private
+MinIO, and real queue/scheduler processes. MinIO substitutes for Cloud object storage, local Redis
+substitutes for managed services, the authority is a contract stub, and mail is non-delivering.
 
 Screenshot evidence beats `getComputedStyle`. Use `measure` (`getBoundingClientRect`) and `overflow`
 at more than one viewport. Hit-testing does not prove paint or occlusion.
@@ -226,7 +222,8 @@ recorded root PID, kills each tree deepest-first, verifies the port has no liste
 database name is exactly a `sink_verify_*` identifier, drops only that explicit database, and then
 proves it no longer exists. Cleanup exits non-zero if any process, port, or database survives.
 
-Cleanup removes only the live instance and database. It preserves the run directory and prints the
+Cleanup removes only the exact processes, Redis server, MinIO bucket/container, temporary TLS material,
+and PostgreSQL database. It preserves the run directory and prints the
 evidence path; `evidence/cleanup.log` and `evidence/cleanup-pids.txt` record what happened.
 
 ## Helpers
@@ -237,7 +234,7 @@ evidence path; `evidence/cleanup.log` and `evidence/cleanup-pids.txt` record wha
 | `harness/launch.sh` | Create/migrate/start one isolated run and invoke Doctor. |
 | `harness/doctor.sh` | Prove process, SHA, PostgreSQL, worker, safe-driver, and browser identity. |
 | `harness/seed-actor.sh` | Create/update a known disposable user, optionally with `--admin`. |
-| `harness/send-message.sh` | Ingest and parse a basic HTML message through the real HTTP/queue path. |
+| `harness/send-message.sh` | Mint an installation-owned ingest credential, then ingest and parse through HTTP/Redis/S3. |
 | `harness/inspect-db.sh` | Emit secret-free JSON evidence for run summary, invitations, or messages. |
 | `harness/drive.cjs` | Drive JSON browser steps in isolated muted Chromium contexts. |
 | `harness/cleanup.sh` | Kill recorded trees, free the port, drop only the run database, keep proof. |

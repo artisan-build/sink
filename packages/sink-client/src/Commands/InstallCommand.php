@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkClient\Commands;
 
-use ArtisanBuild\BuiltForCloud\Commands\Concerns\WritesInstallEnv;
+use ArtisanBuild\SinkClient\Commands\Concerns\WritesSinkInstallFiles;
 use Illuminate\Console\Command;
 use JsonException;
 
@@ -14,7 +14,7 @@ use function Laravel\Prompts\text;
 
 final class InstallCommand extends Command
 {
-    use WritesInstallEnv;
+    use WritesSinkInstallFiles;
 
     protected $signature = 'sink:install
                             {--url= : The Sink server URL}

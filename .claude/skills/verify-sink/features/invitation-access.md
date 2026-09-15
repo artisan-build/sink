@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-- `login-logout` - existing users enter at `/login` and leave through Log out.
+- `login-logout` - existing users enter at `/bfc/managed/login` and leave through Log out.
 - `admin-invite` - an admin creates a seven-day invitation and receives its link.
 - `accept-invite` - the recipient creates a non-admin account from that link.
 - `invalid-invite` - unknown, expired, and accepted links expose no signup form.
@@ -10,7 +10,7 @@
 
 ## How to get to it (user POV)
 
-- Visit `/login` directly, follow any auth redirect, or use Log in from `/`.
+- Visit `/bfc/managed/login` directly, follow the authority handoff, or use Log in from `/`.
 - As an admin, use the Invitations sidebar link or visit `/admin/invitations` directly.
 - Open the generated `/register/{token}` invitation link.
 - Visit `/register/{unknown-token}` to see the invalid/expired state.
@@ -109,7 +109,7 @@ Invitation acceptance is also driven at both required viewports; the sidebar ent
     {"click":"[data-test='logout-button']"},
     {"expectUrl":{"contains":"/"}},
     {"goto":"/admin/invitations"},
-    {"expectUrl":{"contains":"/login"}}
+    {"expectUrl":{"contains":"/bfc/managed/login"}}
   ]
   ```
   Mobile:
@@ -119,7 +119,7 @@ Invitation acceptance is also driven at both required viewports; the sidebar ent
     {"click":"header [data-flux-profile]"},
     {"click":"[data-test='logout-button']"},
     {"goto":"/admin/invitations"},
-    {"expectUrl":{"contains":"/login"}}
+    {"expectUrl":{"contains":"/bfc/managed/login"}}
   ]
   ```
 
@@ -131,5 +131,5 @@ Invitation acceptance is also driven at both required viewports; the sidebar ent
   `input[readonly][value*='/register/']`. `captureValue` treats the result as secret, and every normal
   or failure screenshot masks the invitation URL and token before writing the PNG.
 - Running the two viewports repeats the workflow. Use `{{viewport}}` in the email to avoid ambiguity.
-- Non-admin `/admin/invitations` is 403; guests are redirected to `/login`.
+- Non-admin `/admin/invitations` is 403; guests enter through `/bfc/managed/login`.
 - Login throttles at five attempts per minute for each email/IP combination.
