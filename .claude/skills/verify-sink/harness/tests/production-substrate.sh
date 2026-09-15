@@ -43,5 +43,6 @@ if grep -Eq -- '--purpose=(consumption|mcp).*--abilities=' "$HARNESS_DIR/send-me
 	fail 'protocol purpose was incorrectly duplicated as an operator ability'
 fi
 grep -q "whereKey((int) \$messageKey)" "$HARNESS_DIR/send-message.php" || fail 'ingest proof does not follow the accepted message id'
+grep -q "100 Continue" "$HARNESS_DIR/authority-stub.php" || fail 'managed authority cannot accept Guzzle request bodies'
 
 printf 'ok run-unique secrets, destructive-name guards, and supported credential docs\n'

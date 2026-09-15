@@ -43,6 +43,9 @@ while ($connection = @stream_socket_accept($server, 1)) {
         [$name, $value] = array_pad(explode(':', $line, 2), 2, '');
         $headers[strtolower(trim($name))] = trim($value);
     }
+    if (strcasecmp($headers['expect'] ?? '', '100-continue') === 0) {
+        fwrite($connection, "HTTP/1.1 100 Continue\r\n\r\n");
+    }
     $length = (int) ($headers['content-length'] ?? 0);
     $body = $length > 0 ? stream_get_contents($connection, $length) : '';
     [$method, $target] = array_pad(explode(' ', $requestLine, 3), 3, '');
