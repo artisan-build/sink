@@ -146,6 +146,41 @@ test('the package mounts and serves the standalone human lifecycle', function ()
     $this->assertGuest();
 });
 
+test('installation API credentials have no Sink shell or package management authority', function (CredentialPurpose $purpose): void {
+    $secret = bin2hex(random_bytes(32));
+    $credential = Credential::factory()->create([
+        'kind' => CredentialKind::Bearer,
+        'purpose' => $purpose,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'shell-boundary-'.$purpose->value,
+        'user_id' => null,
+        'secret_hash' => hash('sha256', $secret),
+    ]);
+    $member = User::query()->create([
+        'name' => 'Retained Member',
+        'email' => 'retained-member-'.$purpose->value.'@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
+    $member->forceFill([
+        'role' => UserRole::Member->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
+    $headers = ['Authorization' => 'Bearer '.$secret];
+
+    $this->get(route('dashboard'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('sink.inbox'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('bfc.ui.home'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/bfc/ui']));
+    $this->get(route('bfc.members.index'), $headers)->assertRedirect(route('bfc.login'));
+
+    expect($member->refresh()->status)->toBe('active')
+        ->and($member->deactivated_at)->toBeNull()
+        ->and($credential->refresh()->last_used_at)->toBeNull();
+})->with([
+    'Consumption' => CredentialPurpose::Consumption,
+    'Mcp' => CredentialPurpose::Mcp,
+]);
+
 test('every recognized role can reach and manage installation credentials', function (UserRole $role): void {
     $user = User::query()->create([
         'name' => 'Credential '.$role->value,
