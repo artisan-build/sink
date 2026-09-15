@@ -176,7 +176,7 @@ source app. The purpose-to-capability mapping is closed: `sink.ingest` grants
 only `consumption`.
 
 ```shell
-php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --abilities=consumption --name=<source-app> --local
+php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --name=<source-app> --local
 ```
 
 The command prints the credential once. Move it directly into the source app's

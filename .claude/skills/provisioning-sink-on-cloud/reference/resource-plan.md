@@ -81,8 +81,8 @@ cloud command:run <env-id> --cmd="php artisan migrate --force" -n
 
 # 10. First admin + installation-owned credentials.
 cloud command:run <env-id> --cmd="php artisan create-admin" -n
-cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --abilities=consumption --name=<source-app> --local" -n
-cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=mcp --abilities=mcp --name=<mcp-client> --local" -n
+cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --name=<source-app> --local" -n
+cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=mcp --name=<mcp-client> --local" -n
 #    Transfer each shown-once secret directly to its destination; never copy it into chat or source control.
 ```
 
