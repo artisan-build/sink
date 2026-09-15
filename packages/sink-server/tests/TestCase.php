@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Tests;
 
 use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
+use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\SinkServer\SinkServerServiceProvider;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -40,6 +41,7 @@ abstract class TestCase extends Orchestra
      */
     protected function getEnvironmentSetUp($app): void
     {
+        $app['config']->set('auth.providers.users.model', User::class);
         $app['config']->set('database.default', 'sink');
         $app['config']->set('database.connections.sink', [
             'driver' => 'sqlite',
