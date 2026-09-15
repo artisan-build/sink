@@ -5,8 +5,10 @@ declare(strict_types=1);
 
 use ArtisanBuild\BuiltForCloud\AuthorityMode;
 use ArtisanBuild\BuiltForCloud\InstallationAuthority;
+use ArtisanBuild\BuiltForCloud\ManagedAuthConnection;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 require getenv('APP_DIR_FOR_VERIFY').'/vendor/autoload.php';
 $app = require getenv('APP_DIR_FOR_VERIFY').'/bootstrap/app.php';
@@ -27,4 +29,13 @@ DB::table('bfc_authority')->where('key', InstallationAuthority::KEY)->update([
     'installation_id' => 'sink-verify-installation',
     'authority_base_url' => 'https://127.0.0.1:'.getenv('VERIFY_AUTHORITY_PORT'),
 ]);
-fwrite(STDOUT, "managed authority configured for disposable installation\n");
+$connection = ManagedAuthConnection::current();
+$probe = Http::withOptions(['verify' => $connection->caBundle])
+    ->get($connection->baseUrl.'/not-found');
+
+if ($probe->status() !== 401) {
+    fwrite(STDERR, "Disposable managed authority TLS probe was not refused as expected.\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "managed authority configured and TLS-verified for disposable installation\n");
