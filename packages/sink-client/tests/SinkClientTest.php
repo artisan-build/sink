@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BfcClient\BfcClientServiceProvider;
 use ArtisanBuild\BfcClient\BfcHeaders;
 use ArtisanBuild\BfcClient\ClientIdentity;
 use ArtisanBuild\SinkClient\Exceptions\SinkNotConfigured;
@@ -9,8 +10,12 @@ use ArtisanBuild\SinkClient\Exceptions\SinkProductionFuse;
 use ArtisanBuild\SinkClient\SinkClient;
 use ArtisanBuild\SinkClient\SinkClientServiceProvider;
 use ArtisanBuild\SinkContracts\Envelope;
+use Composer\InstalledVersions;
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Migrations\Migrator;
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
@@ -53,6 +58,24 @@ it('merges its package config through the service provider', function (): void {
 
 it('registers the client provider in the test application', function (): void {
     expect(app()->getLoadedProviders())->toHaveKey(SinkClientServiceProvider::class);
+});
+
+it('boots through package discovery without the full BfC server package or its surfaces', function (): void {
+    $serverNamespace = 'ArtisanBuild\\BuiltForCloud\\';
+    $loadedProviders = array_keys(app()->getLoadedProviders());
+    $routes = app(Router::class)->getRoutes()->getRoutes();
+    $commands = array_keys(app(Kernel::class)->all());
+    $serverCommands = array_filter($commands, fn (string $command): bool => $command === 'create-admin' || str_starts_with($command, 'bfc:'));
+    $migrationPaths = app(Migrator::class)->paths();
+
+    expect(InstalledVersions::isInstalled('artisan-build/bfc-client'))->toBeTrue()
+        ->and(InstalledVersions::isInstalled('artisan-build/built-for-cloud'))->toBeFalse()
+        ->and($loadedProviders)->toContain(BfcClientServiceProvider::class, SinkClientServiceProvider::class)
+        ->and($loadedProviders)->not->toContain($serverNamespace.'BuiltForCloudServiceProvider')
+        ->and(array_filter($routes, fn ($route): bool => str_starts_with($route->getActionName(), $serverNamespace)))->toBe([])
+        ->and($serverCommands)->toBe([])
+        ->and($commands)->toContain('sink:install', 'sink:update')
+        ->and(array_filter($migrationPaths, fn (string $path): bool => str_contains($path, 'built-for-cloud')))->toBe([]);
 });
 
 it('captures outbound mail as a Sink envelope without delivering elsewhere', function (): void {
