@@ -1,114 +1,95 @@
 <?php
 
-use App\Livewire\Settings\Security;
-use App\Models\User;
+declare(strict_types=1);
+
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\BuiltForCloud\UserRole;
 use Illuminate\Support\Facades\Hash;
-use Laravel\Fortify\Features;
-use Livewire\Livewire;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Str;
 
-beforeEach(function (): void {
-    $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
+test('Sink-owned security settings remain absent', function (): void {
+    expect(Route::has('security.edit'))->toBeFalse()
+        ->and(class_exists('App\\Livewire\\Settings\\Security'))->toBeFalse();
 
-    Features::twoFactorAuthentication([
-        'confirm' => true,
-        'confirmPassword' => true,
-    ]);
-    Features::passkeys([
-        'confirmPassword' => true,
-    ]);
+    $this->get('/settings/security')->assertNotFound();
 });
 
-test('security settings page can be rendered', function (): void {
-    $user = User::factory()->create();
+test('package passwords cannot be changed through a Sink settings endpoint', function (): void {
+    $user = securityBoundaryUser();
+    securityBoundaryLogin($user);
+    $password = $user->password;
 
-    $response = $this->actingAs($user)
-        ->withSession(['auth.password_confirmed_at' => time()])
-        ->get(route('security.edit'));
+    $this->put('/user/password', [
+        'current_password' => 'test-created-password',
+        'password' => 'changed-password',
+        'password_confirmation' => 'changed-password',
+    ])->assertNotFound();
 
-    $response->assertOk();
-
-    $response->assertSee('Passkeys');
-    $response->assertSee('No passkeys yet');
-    $response->assertSee('Two-factor authentication');
-    $response->assertSee('Enable 2FA');
+    expect($user->refresh()->password)->toBe($password)
+        ->and(Hash::check('test-created-password', $user->password))->toBeTrue();
 });
 
-test('security settings page requires password confirmation when enabled', function (): void {
-    $user = User::factory()->create();
+test('Sink does not expose app-owned two-factor authentication', function (): void {
+    $user = securityBoundaryUser();
+    securityBoundaryLogin($user);
 
-    $response = $this->actingAs($user)
-        ->get(route('security.edit'));
-
-    $response->assertRedirect(route('password.confirm'));
+    $this->post('/user/two-factor-authentication')->assertNotFound();
+    $this->assertAuthenticatedAs($user);
 });
 
-test('security settings page renders without two factor when feature is disabled', function (): void {
-    config(['fortify.features' => []]);
+test('Sink does not expose app-owned passkey management', function (): void {
+    $user = securityBoundaryUser();
+    securityBoundaryLogin($user);
 
-    $user = User::factory()->create();
+    $this->post('/user/passkeys')->assertNotFound();
+    $this->assertAuthenticatedAs($user);
+});
 
-    $this->actingAs($user)
-        ->withSession(['auth.password_confirmed_at' => time()])
-        ->get(route('security.edit'))
+test('password recovery remains on the package-owned lifecycle', function (): void {
+    $response = $this->get(route('bfc.password.request'))
         ->assertOk()
-        ->assertSee('Update password')
-        ->assertDontSee('Manage your passkeys for passwordless sign-in')
-        ->assertDontSee('Add a passkey to sign in without a password')
-        ->assertDontSee('Two-factor authentication');
+        ->assertSee('Reset password');
+
+    assertTestMarker($response, 'password-request-form');
 });
 
-test('two factor authentication disabled when confirmation abandoned between requests', function (): void {
-    $user = User::factory()->create();
+test('session security remains on the package-owned lifecycle', function (): void {
+    $user = securityBoundaryUser();
+    securityBoundaryLogin($user);
 
+    $home = $this->get(route('bfc.ui.home'))->assertOk();
+    assertTestMarker($home, 'ui-nav-session-management');
+
+    $sessions = $this->get(route('bfc.sessions.index'))
+        ->assertOk()
+        ->assertSee('Account security')
+        ->assertSee('This session driver cannot enumerate account sessions.');
+
+    assertTestMarker($sessions, 'sessions-management');
+    assertTestMarker($sessions, 'sessions-unavailable');
+});
+
+function securityBoundaryUser(): User
+{
+    $user = User::query()->create([
+        'name' => 'Security Boundary Member',
+        'email' => 'security-boundary-'.Str::ulid().'@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
     $user->forceFill([
-        'two_factor_secret' => encrypt('test-secret'),
-        'two_factor_recovery_codes' => encrypt(json_encode(['code1', 'code2'])),
-        'two_factor_confirmed_at' => null,
+        'role' => UserRole::Member->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
     ])->save();
 
-    $this->actingAs($user);
+    return $user;
+}
 
-    $component = Livewire::test(Security::class);
-
-    $component->assertSet('twoFactorEnabled', false);
-
-    $this->assertDatabaseHas('users', [
-        'id' => $user->id,
-        'two_factor_secret' => null,
-        'two_factor_recovery_codes' => null,
-    ]);
-});
-
-test('password can be updated', function (): void {
-    $user = User::factory()->create([
-        'password' => Hash::make('password'),
-    ]);
-
-    $this->actingAs($user);
-
-    $response = Livewire::test(Security::class)
-        ->set('current_password', 'password')
-        ->set('password', 'new-password')
-        ->set('password_confirmation', 'new-password')
-        ->call('updatePassword');
-
-    $response->assertHasNoErrors();
-
-    expect(Hash::check('new-password', $user->refresh()->password))->toBeTrue();
-});
-
-test('correct password must be provided to update password', function (): void {
-    $user = User::factory()->create([
-        'password' => Hash::make('password'),
-    ]);
-
-    $this->actingAs($user);
-
-    $response = Livewire::test(Security::class)
-        ->set('current_password', 'wrong-password')
-        ->set('password', 'new-password')
-        ->set('password_confirmation', 'new-password')
-        ->call('updatePassword');
-
-    $response->assertHasErrors(['current_password']);
-});
+function securityBoundaryLogin(User $user): void
+{
+    test()->post(route('bfc.login.store'), [
+        'email' => $user->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+}
