@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\Credential;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\CredentialStatus;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Models\Message;
@@ -15,14 +18,16 @@ use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
+use Symfony\Component\HttpFoundation\Response;
 
 beforeEach(function (): void {
     Storage::fake((string) config('sink-server.disk'));
-    ApiToken::factory()->create(['name' => 'mcp', 'token_hash' => hash('sha256', 'mcp-token')]);
+    mcpCredential('mcp-token');
 });
 
 it('registers only the authenticated web MCP transport', function (): void {
@@ -60,11 +65,7 @@ it('denies the fallback token for MCP requests including the purge tool', functi
 
 it('denies an expired token for MCP requests including the purge tool', function (): void {
     seedMcpMessages();
-    ApiToken::factory()->create([
-        'name' => 'expired',
-        'token_hash' => hash('sha256', 'expired-token'),
-        'expires_at' => now()->subMinute(),
-    ]);
+    mcpCredential('expired-token', ['expires_at' => now()->subMinute()]);
 
     $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), ['Authorization' => 'Bearer expired-token'])
         ->assertUnauthorized();
@@ -77,8 +78,7 @@ it('denies an expired token for MCP requests including the purge tool', function
 
 it('denies a revoked token for MCP requests including the purge tool', function (): void {
     seedMcpMessages();
-    ApiToken::factory()->create(['name' => 'doomed', 'token_hash' => hash('sha256', 'doomed-token')]);
-    app(TokenRegistry::class)->revoke('doomed');
+    mcpCredential('doomed-token', ['revoked_at' => now()]);
 
     $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), ['Authorization' => 'Bearer doomed-token'])
         ->assertUnauthorized();
@@ -87,6 +87,85 @@ it('denies a revoked token for MCP requests including the purge tool', function 
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+});
+
+it('denies every non-installation MCP credential class without recording usage', function (string $case): void {
+    $secret = 'denied-'.$case;
+
+    if ($case === 'legacy') {
+        Credential::query()->insert([
+            'id' => (string) str()->uuid(),
+            'kind' => CredentialKind::Bearer->value,
+            'purpose' => null,
+            'subject_type' => SubjectType::Installation->value,
+            'subject_ref' => 'legacy-mcp',
+            'secret_hash' => hash('sha256', $secret),
+            'status' => CredentialStatus::Active->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    } else {
+        $attributes = match ($case) {
+            'pending' => ['status' => CredentialStatus::Pending],
+            'account-bound' => ['user_id' => 'account-user'],
+            'wrong-purpose' => ['purpose' => CredentialPurpose::Consumption],
+            'wrong-subject' => ['subject_type' => SubjectType::ExternalConsumer],
+            'basic' => ['kind' => CredentialKind::Basic],
+        };
+        mcpCredential($secret, $attributes);
+    }
+
+    $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), [
+        'Authorization' => 'Bearer '.$secret,
+    ])->assertUnauthorized();
+
+    expect(Credential::query()->where('secret_hash', hash('sha256', $secret))->value('last_used_at'))->toBeNull();
+})->with(['pending', 'account-bound', 'wrong-purpose', 'wrong-subject', 'basic', 'legacy']);
+
+it('scrubs the bearer before publishing the canonical credential downstream', function (): void {
+    $request = Request::create('/mcp', 'POST', server: [
+        'HTTP_AUTHORIZATION' => 'Bearer mcp-token',
+        'REDIRECT_HTTP_AUTHORIZATION' => 'Bearer mcp-token',
+    ]);
+
+    app(AuthenticateSinkMcp::class)->handle($request, function ($downstream): Response {
+        expect($downstream->headers->get('Authorization'))->toBeNull()
+            ->and($downstream->server->get('HTTP_AUTHORIZATION'))->toBeNull()
+            ->and($downstream->server->get('REDIRECT_HTTP_AUTHORIZATION'))->toBeNull()
+            ->and($downstream->attributes->get(Credential::class))->toBeInstanceOf(Credential::class);
+
+        return response('ok');
+    });
+});
+
+it('exposes exactly the ten body-blind Sink tools and no resources', function (): void {
+    $tools = $this->postJson((string) config('sink-server.mcp.path'), [
+        'jsonrpc' => '2.0',
+        'id' => 'tools',
+        'method' => 'tools/list',
+    ], ['Authorization' => 'Bearer mcp-token'])->assertOk()->json('result.tools.*.name');
+    sort($tools);
+
+    expect($tools)->toBe([
+        'assert_count',
+        'body_matches',
+        'count_messages',
+        'links',
+        'list_apps',
+        'list_recent',
+        'message_detail',
+        'purge',
+        'recipients',
+        'stats',
+    ]);
+
+    $this->postJson((string) config('sink-server.mcp.path'), [
+        'jsonrpc' => '2.0',
+        'id' => 'resources',
+        'method' => 'resources/list',
+    ], ['Authorization' => 'Bearer mcp-token'])
+        ->assertOk()
+        ->assertJsonPath('result.resources', []);
 });
 
 it('counts messages and asserts expected counts across filters', function (): void {
@@ -208,8 +287,7 @@ it('matches body substrings without returning matched or body text', function ()
 
 it('purges scoped messages through the delete action and refuses unscoped purges', function (): void {
     ['secret' => $message] = seedMcpMessages();
-    ApiToken::factory()->create(['name' => 'other', 'token_hash' => hash('sha256', 'other-token')]);
-    $token = ApiToken::query()->where('name', 'mcp')->sole();
+    $credential = Credential::query()->where('name', 'mcp')->sole();
 
     expect(mcpTool('purge'))->toBe([
         'error' => 'refusing unscoped purge',
@@ -234,11 +312,11 @@ it('purges scoped messages through the delete action and refuses unscoped purges
         'action' => 'messages_purged',
         'action_vocabulary' => SinkAction::class,
         'reason' => AppActionReason::Requested->value,
-        'actor_type' => 'legacy_api_token',
-        'actor_ref' => (string) $token->getKey(),
+        'actor_type' => 'api_token',
+        'actor_ref' => (string) $credential->getKey(),
         'on_behalf_of' => null,
     ])->and($ledger->event_id)->toBe($event->id)
-        ->and($token->refresh()->request_count)->toBe(2);
+        ->and($credential->refresh()->last_used_at)->not->toBeNull();
 
     $rows = json_encode([$event->getAttributes(), $ledger->getAttributes()], JSON_THROW_ON_ERROR);
 
@@ -251,7 +329,6 @@ it('purges scoped messages through the delete action and refuses unscoped purges
     expect(mcpTool('purge', ['app' => 'alpha']))->toBe(['deleted' => 0]);
     $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
-    expect($token->refresh()->request_count)->toBe(3);
 });
 
 it('rolls the MCP database purge back when audit recording fails', function (): void {
@@ -315,6 +392,21 @@ function initializePayload(): array
             ],
         ],
     ];
+}
+
+/** @param array<string, mixed> $attributes */
+function mcpCredential(string $secret, array $attributes = []): Credential
+{
+    return Credential::query()->create([
+        'kind' => CredentialKind::Bearer,
+        'purpose' => CredentialPurpose::Mcp,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => 'sink-installation',
+        'name' => 'mcp',
+        'status' => CredentialStatus::Active,
+        'secret_hash' => hash('sha256', $secret),
+        ...$attributes,
+    ]);
 }
 
 function mcpTool(string $name, array $arguments = []): array

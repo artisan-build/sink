@@ -2,15 +2,25 @@
 
 declare(strict_types=1);
 
+use ArtisanBuild\BuiltForCloud\Auth\CredentialResolver;
+use ArtisanBuild\BuiltForCloud\AuthorityMode;
+use ArtisanBuild\BuiltForCloud\Credential;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureStandaloneAuthority;
+use ArtisanBuild\BuiltForCloud\InstallationAuthority;
 use ArtisanBuild\BuiltForCloud\RolePolicy;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\BuiltForCloud\UserRole;
+use ArtisanBuild\SinkContracts\Envelope;
+use ArtisanBuild\SinkContracts\Truncation;
 use Composer\InstalledVersions;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 
 test('Sink declares the exact package-owned human auth and UI configuration', function (): void {
     expect(config('auth.providers.users.model'))->toBe(User::class)
@@ -32,7 +42,7 @@ test('Sink declares the exact package-owned human auth and UI configuration', fu
             'landing_page' => true,
             'member_management' => true,
             'personal_credentials' => false,
-            'installation_credentials' => false,
+            'installation_credentials' => true,
             'session_management' => true,
             'managed_transitions' => true,
             'credential_purposes' => ['sink.ingest', 'sink.mcp'],
@@ -126,7 +136,7 @@ test('the package mounts and serves the standalone human lifecycle', function ()
     assertTestMarker($home, 'ui-nav-session-management');
     assertTestMarker($home, 'ui-nav-managed-transitions');
     assertTestMarker($home, 'ui-nav-personal-credentials', present: false);
-    assertTestMarker($home, 'ui-nav-installation-credentials', present: false);
+    assertTestMarker($home, 'ui-nav-installation-credentials');
 
     $members = $this->get(route('bfc.members.index'))->assertOk()->assertSee($owner->email);
     assertTestMarker($members, 'members-management');
@@ -134,6 +144,105 @@ test('the package mounts and serves the standalone human lifecycle', function ()
 
     $this->post(route('bfc.logout'))->assertRedirect(route('bfc.login'));
     $this->assertGuest();
+});
+
+test('every recognized role can reach and manage installation credentials', function (UserRole $role): void {
+    $user = User::query()->create([
+        'name' => 'Credential '.$role->value,
+        'email' => 'credential-'.$role->value.'@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
+    $user->forceFill([
+        'role' => $role->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
+
+    $this->post(route('bfc.login.store'), [
+        'email' => $user->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+
+    $page = $this->get(route('bfc.ui.installation-credentials.index'))->assertOk();
+    assertTestMarker($page, 'installation-credentials');
+    assertTestMarker($page, 'installation-credentials-issue-option');
+
+    $response = $this->postJson('/bfc/installation/credentials', [
+        'subject_type' => SubjectType::Installation->value,
+        'subject_ref' => 'sink-'.$role->value,
+        'kind' => CredentialKind::Bearer->value,
+        'purpose' => CredentialPurpose::Consumption->value,
+        'name' => $role->value.' ingest',
+    ])->assertCreated();
+    $credential = Credential::query()->findOrFail($response->json('credential.id'));
+
+    expect($credential->user_id)->toBeNull()
+        ->and($credential->purpose)->toBe(CredentialPurpose::Consumption)
+        ->and($credential->subject_type)->toBe(SubjectType::Installation);
+})->with(UserRole::cases());
+
+test('installation ingest and MCP credentials survive issuer departure and authority mode changes', function (): void {
+    $issuer = User::query()->create([
+        'name' => 'Credential issuer',
+        'email' => 'credential-issuer@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
+    $issuer->forceFill([
+        'role' => UserRole::Member->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
+
+    $this->post(route('bfc.login.store'), [
+        'email' => $issuer->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+
+    $issued = [];
+    foreach ([
+        'sink.ingest' => CredentialPurpose::Consumption,
+        'sink.mcp' => CredentialPurpose::Mcp,
+    ] as $name => $purpose) {
+        $response = $this->postJson('/bfc/installation/credentials', [
+            'subject_type' => SubjectType::Installation->value,
+            'subject_ref' => 'surviving-installation',
+            'kind' => CredentialKind::Bearer->value,
+            'purpose' => $purpose->value,
+            'name' => $name,
+        ])->assertCreated();
+        $issued[$purpose->value] = (string) $response->json('delivery.secret');
+    }
+
+    $issuer->forceFill(['status' => 'inactive'])->save();
+    expect(InstallationAuthority::change(InstallationAuthority::current(), AuthorityMode::Managed))->not->toBeNull();
+
+    $payload = Envelope::make(
+        idempotencyKey: (string) Str::ulid(),
+        sentAt: now()->toIso8601String(),
+        message: base64_encode("From: sender@example.test\r\nTo: recipient@example.test\r\nSubject: survives\r\n\r\nBody."),
+        stream: null,
+        truncation: Truncation::None,
+    )->toArray();
+    $this->postJson('/ingest', $payload, [
+        'Authorization' => 'Bearer '.$issued[CredentialPurpose::Consumption->value],
+    ])->assertAccepted();
+    $this->postJson('/mcp', [
+        'jsonrpc' => '2.0',
+        'id' => 'survival',
+        'method' => 'initialize',
+        'params' => [
+            'protocolVersion' => '2025-06-18',
+            'capabilities' => (object) [],
+            'clientInfo' => ['name' => 'sink-tests', 'version' => '1.0.0'],
+        ],
+    ], ['Authorization' => 'Bearer '.$issued[CredentialPurpose::Mcp->value]])->assertOk();
+
+    foreach ($issued as $purpose => $secret) {
+        $credential = app(CredentialResolver::class)->resolve(CredentialKind::Bearer, $secret);
+        expect($credential?->purpose->value)->toBe($purpose)
+            ->and($credential?->user_id)->toBeNull()
+            ->and($credential?->last_used_at)->not->toBeNull();
+    }
 });
 
 test('the package create admin command creates the first owner locally', function (): void {

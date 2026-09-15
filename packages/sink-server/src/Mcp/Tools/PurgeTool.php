@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
-use ArtisanBuild\BuiltForCloud\ApiToken;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionActor;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
+use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Concerns\FiltersMessages;
@@ -33,13 +33,13 @@ final class PurgeTool extends Tool
             return Response::json(['error' => 'refusing unscoped purge', 'deleted' => 0]);
         }
 
-        $token = request()->attributes->get(ApiToken::class);
+        $credential = request()->attributes->get(Credential::class);
 
-        abort_unless($token instanceof ApiToken, 401);
+        abort_unless($credential instanceof Credential, 401);
 
         $deleteMessage = app(DeleteMessage::class);
         $actions = app(AppActionRecorder::class);
-        $actor = AppActionActor::legacyApiToken($token);
+        $actor = AppActionActor::apiToken($credential);
 
         $deleted = DB::transaction(function () use ($validated, $deleteMessage, $actions, $actor): int {
             $deleted = 0;

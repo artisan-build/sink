@@ -25,7 +25,7 @@ return [
         'landing_page' => true,
         'member_management' => true,
         'personal_credentials' => false,
-        'installation_credentials' => false,
+        'installation_credentials' => true,
         'session_management' => true,
         'managed_transitions' => true,
         'credential_purposes' => ['sink.ingest', 'sink.mcp'],

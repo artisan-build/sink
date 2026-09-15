@@ -2,7 +2,11 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\Credential;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\CredentialStatus;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
@@ -19,38 +23,80 @@ use Illuminate\Support\Str;
 
 beforeEach(function (): void {
     Storage::fake((string) config('sink-server.disk'));
+    ingestCredential('ingest-token', 'test-app');
 });
 
-it('authenticates ingest requests with the fallback token', function (): void {
+it('authenticates ingest requests only with a canonical installation consumption credential', function (): void {
     $payload = envelopePayload((string) Str::ulid(), simpleMime());
 
     $this->postJson('/ingest', $payload)->assertUnauthorized();
     $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer wrong-token'])->assertUnauthorized();
+    $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer test-token'])->assertUnauthorized();
 
-    $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted()
         ->assertJsonStructure(['id']);
+
+    expect(Message::query()->sole()->app)->toBe('test-app')
+        ->and(Credential::query()->where('subject_ref', 'test-app')->sole()->last_used_at)->not->toBeNull();
 });
+
+it('denies inadmissible ingest credentials without recording usage', function (string $case): void {
+    $secret = 'denied-'.$case;
+    $attributes = [];
+
+    if ($case === 'legacy') {
+        Credential::query()->insert([
+            'id' => (string) Str::uuid(),
+            'kind' => CredentialKind::Bearer->value,
+            'purpose' => null,
+            'subject_type' => SubjectType::Installation->value,
+            'subject_ref' => 'legacy-app',
+            'secret_hash' => hash('sha256', $secret),
+            'status' => CredentialStatus::Active->value,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    } else {
+        $attributes = match ($case) {
+            'pending' => ['status' => CredentialStatus::Pending],
+            'revoked' => ['revoked_at' => now()],
+            'expired' => ['expires_at' => now()->subMinute()],
+            'account-bound' => ['user_id' => 'departed-user'],
+            'wrong-purpose' => ['purpose' => CredentialPurpose::Mcp],
+            'wrong-subject' => ['subject_type' => SubjectType::ExternalConsumer],
+            'basic' => ['kind' => CredentialKind::Basic],
+        };
+        ingestCredential($secret, 'denied-app', $attributes);
+    }
+
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), [
+        'Authorization' => 'Bearer '.$secret,
+    ])->assertUnauthorized();
+
+    expect(Message::query()->count())->toBe(0)
+        ->and(Credential::query()->where('secret_hash', hash('sha256', $secret))->value('last_used_at'))->toBeNull();
+})->with(['pending', 'revoked', 'expired', 'account-bound', 'wrong-purpose', 'wrong-subject', 'basic', 'legacy']);
 
 it('rejects unsupported or malformed envelopes', function (): void {
     $newer = envelopePayload((string) Str::ulid(), simpleMime());
     $newer['envelope_version'] = Envelope::VERSION + 1;
 
-    $this->postJson('/ingest', $newer, ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', $newer, ['Authorization' => 'Bearer ingest-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope v'.(Envelope::VERSION + 1).' is newer than this Sink instance (max v'.Envelope::VERSION.') — upgrade your Sink server.');
 
     $missingVersion = envelopePayload((string) Str::ulid(), simpleMime());
     unset($missingVersion['envelope_version']);
 
-    $this->postJson('/ingest', $missingVersion, ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', $missingVersion, ['Authorization' => 'Bearer ingest-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope is missing a numeric "envelope_version".');
 
     $missingIdempotency = envelopePayload((string) Str::ulid(), simpleMime());
     unset($missingIdempotency['idempotency_key']);
 
-    $this->postJson('/ingest', $missingIdempotency, ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', $missingIdempotency, ['Authorization' => 'Bearer ingest-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope is missing a non-empty string "idempotency_key".');
 });
@@ -58,12 +104,12 @@ it('rejects unsupported or malformed envelopes', function (): void {
 it('upserts messages by idempotency key', function (): void {
     $sameKey = (string) Str::ulid();
 
-    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime()), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
     $message = Message::query()->where('idempotency_key', $sameKey)->firstOrFail();
     $firstObjectKey = $message->raw_object_key;
 
-    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime('Replay')), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($sameKey, simpleMime('Replay')), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
     $message->refresh();
 
@@ -73,9 +119,9 @@ it('upserts messages by idempotency key', function (): void {
     Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
     Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
 
-    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
-    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
 
     expect(Message::query()->count())->toBe(3);
@@ -85,7 +131,7 @@ it('stores raw mime bytes in object storage', function (): void {
     $idempotencyKey = (string) Str::ulid();
     $raw = simpleMime('Stored raw bytes');
 
-    $this->postJson('/ingest', envelopePayload($idempotencyKey, $raw), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, $raw), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
 
     $message = Message::query()->where('idempotency_key', $idempotencyKey)->firstOrFail();
@@ -99,7 +145,7 @@ it('stores raw mime bytes in object storage', function (): void {
 it('parses metadata links and attachments without persisting body text', function (): void {
     $raw = multipartMime('..note.txt');
 
-    $response = $this->postJson('/ingest', envelopePayload((string) Str::ulid(), $raw), ['Authorization' => 'Bearer test-token'])
+    $response = $this->postJson('/ingest', envelopePayload((string) Str::ulid(), $raw), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
 
     (new ParseMessage((int) $response->json('id')))->handle();
@@ -142,7 +188,7 @@ it('captures parser-created attachments when deleting after a completed parse', 
     $response = $this->postJson(
         '/ingest',
         envelopePayload((string) Str::ulid(), multipartMime()),
-        ['Authorization' => 'Bearer test-token'],
+        ['Authorization' => 'Bearer ingest-token'],
     )->assertAccepted();
 
     (new ParseMessage((int) $response->json('id')))->handle();
@@ -161,7 +207,7 @@ it('reparses attachments onto immutable keys and cleans the replaced blobs', fun
     $response = $this->postJson(
         '/ingest',
         envelopePayload((string) Str::ulid(), multipartMime()),
-        ['Authorization' => 'Bearer test-token'],
+        ['Authorization' => 'Bearer ingest-token'],
     )->assertAccepted();
     $messageId = (int) $response->json('id');
 
@@ -179,7 +225,7 @@ it('reparses attachments onto immutable keys and cleans the replaced blobs', fun
 });
 
 it('rejects non ulid idempotency keys before storage or database writes', function (string $idempotencyKey): void {
-    $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload($idempotencyKey, simpleMime()), ['Authorization' => 'Bearer ingest-token'])
         ->assertUnprocessable()
         ->assertJsonPath('message', 'Envelope "idempotency_key" must be a valid ULID.');
 
@@ -191,8 +237,8 @@ it('rejects non ulid idempotency keys before storage or database writes', functi
 ]);
 
 it('isolates idempotency by resolved app id', function (): void {
-    app(TokenRegistry::class)->store('app-a', hash('sha256', 'token-a'));
-    app(TokenRegistry::class)->store('app-b', hash('sha256', 'token-b'));
+    ingestCredential('token-a', 'app-a');
+    ingestCredential('token-b', 'app-b');
 
     $idempotencyKey = (string) Str::ulid();
 
@@ -217,7 +263,7 @@ it('dispatches parse jobs on the configured queue after termination', function (
     config(['sink-server.queue' => 'redis']);
     Bus::fake();
 
-    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer test-token'])
+    $this->postJson('/ingest', envelopePayload((string) Str::ulid(), simpleMime()), ['Authorization' => 'Bearer ingest-token'])
         ->assertAccepted();
 
     Bus::assertDispatched(ParseMessage::class, fn (ParseMessage $job): bool => $job->connection === 'redis');
@@ -292,6 +338,21 @@ function envelopePayload(string $idempotencyKey, string $raw): array
         stream: null,
         truncation: Truncation::None,
     )->toArray();
+}
+
+/** @param array<string, mixed> $attributes */
+function ingestCredential(string $secret, string $app, array $attributes = []): Credential
+{
+    return Credential::query()->create([
+        'kind' => CredentialKind::Bearer,
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => $app,
+        'name' => $app,
+        'status' => CredentialStatus::Active,
+        'secret_hash' => hash('sha256', $secret),
+        ...$attributes,
+    ]);
 }
 
 function simpleMime(string $subject = 'Hello Sink'): string
