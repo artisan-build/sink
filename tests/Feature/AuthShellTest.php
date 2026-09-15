@@ -1,225 +1,152 @@
 <?php
 
-use App\Livewire\Admin\Invitations;
-use App\Livewire\Auth\AcceptInvitation;
-use App\Models\User;
-use ArtisanBuild\BuiltForCloud\ClaimError;
-use ArtisanBuild\BuiltForCloud\Exceptions\InvalidInvitation;
-use ArtisanBuild\BuiltForCloud\Invitation;
+declare(strict_types=1);
+
+use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureStandaloneAuthority;
+use ArtisanBuild\BuiltForCloud\RolePolicy;
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\BuiltForCloud\UserRole;
+use Composer\InstalledVersions;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
-use Laravel\Fortify\Features;
-use Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException;
-use Livewire\Livewire;
 
-test('users table has is admin and user casts it to boolean', function (): void {
-    expect(Schema::hasColumn('users', 'is_admin'))->toBeTrue();
-
-    $user = User::factory()->create();
-
-    expect($user->refresh()->is_admin)->toBeFalse()
-        ->and($user->is_admin)->toBeBool();
-
-    $user->forceFill(['is_admin' => true])->save();
-
-    expect($user->refresh()->is_admin)->toBeTrue()
-        ->and($user->is_admin)->toBeBool();
-});
-
-test('open registration is disabled and does not create a user', function (): void {
-    expect(Features::enabled(Features::registration()))->toBeFalse();
-
-    $this->post('/register', [
-        'name' => 'Open User',
-        'email' => 'open@example.com',
-        'password' => 'secret-pass',
-        'password_confirmation' => 'secret-pass',
-    ])->assertNotFound();
-
-    $this->assertDatabaseMissing('users', [
-        'email' => 'open@example.com',
-    ]);
-});
-
-test('an invited user can accept an invitation and is logged in as a non admin', function (): void {
-    $invitation = Invitation::invite('invitee@test', 604800);
-    $plainTextToken = $invitation->token;
-
-    expect(Invitation::query()->whereKey($invitation->getKey())->value('token'))->not->toBe($plainTextToken);
-
-    $this->get(route('register.invitation', $plainTextToken))
-        ->assertOk()
-        ->assertSee('Accept your invitation')
-        ->assertSee('invitee@test');
-
-    Livewire::test(AcceptInvitation::class, ['token' => $plainTextToken])
-        ->set('name', 'Invited User')
-        ->set('password', 'secret-pass')
-        ->set('password_confirmation', 'secret-pass')
-        ->call('accept')
-        ->assertRedirect(route('dashboard', absolute: false));
-
-    $user = User::query()->where('email', 'invitee@test')->firstOrFail();
-
-    $this->assertAuthenticatedAs($user);
-    expect($user->is_admin)->toBeFalse();
-    expect($invitation->refresh()->accepted_at)->not->toBeNull();
-});
-
-test('invalid expired and already accepted invitations do not show an open signup form', function (): void {
-    $expiredInvitation = Invitation::invite('expired@test', 60);
-    $expiredToken = $expiredInvitation->token;
-
-    $this->travel(60)->seconds();
-
-    try {
-        Invitation::accept($expiredToken, [
-            'name' => 'Expired User',
-            'password' => 'secret-pass',
+test('Sink declares the exact package-owned human auth and UI configuration', function (): void {
+    expect(config('auth.providers.users.model'))->toBe(User::class)
+        ->and(Schema::hasColumn('users', 'role'))->toBeTrue()
+        ->and(Schema::hasColumn('users', 'status'))->toBeTrue()
+        ->and(Schema::hasColumn('users', 'is_admin'))->toBeFalse()
+        ->and(array_column(UserRole::cases(), 'value'))->toBe(['owner', 'admin', 'member'])
+        ->and(RolePolicy::canUseProduct('unknown-role'))->toBeFalse()
+        ->and(config('built-for-cloud.manifest'))->toBe([
+            'name' => 'Sink',
+            'slug' => 'sink',
+            'description' => 'Self-hosted, unmetered staging and test mail capture for Laravel.',
+            'icon' => 'https://scalpels.app/products/sink/icon.svg',
+            'product_url' => 'https://scalpels.app/products/sink',
+        ])->and(config('built-for-cloud.credentials.app_purposes'))->toBe([
+            'sink.ingest' => 'consumption',
+            'sink.mcp' => 'mcp',
+        ])->and(config('built-for-cloud.ui'))->toBe([
+            'landing_page' => true,
+            'member_management' => true,
+            'personal_credentials' => false,
+            'installation_credentials' => false,
+            'session_management' => true,
+            'managed_transitions' => true,
+            'credential_purposes' => ['sink.ingest', 'sink.mcp'],
         ]);
-
-        $this->fail('The expired invitation was accepted.');
-    } catch (InvalidInvitation $exception) {
-        expect($exception->error)->toBe(ClaimError::CodeExpired);
-    }
-
-    $this->get(route('register.invitation', 'unknown-token'))
-        ->assertOk()
-        ->assertSee('Invitation invalid or expired')
-        ->assertDontSee('Create account');
-
-    $this->get(route('register.invitation', $expiredToken))
-        ->assertOk()
-        ->assertSee('Invitation invalid or expired')
-        ->assertDontSee('Create account');
-
-    $acceptedInvitation = Invitation::invite('accepted@test', 604800);
-
-    Invitation::accept($acceptedInvitation->token, [
-        'name' => 'Accepted User',
-        'password' => 'secret-pass',
-    ]);
-
-    $this->get(route('register.invitation', $acceptedInvitation->token))
-        ->assertOk()
-        ->assertSee('Invitation invalid or expired')
-        ->assertDontSee('Create account');
-
-    expect(User::query()->whereIn('email', [
-        'expired@test',
-        'unknown@test',
-    ])->count())->toBe(0)
-        ->and(User::query()->where('email', 'accepted@test')->count())->toBe(1);
 });
 
-test('an invitation that expires or is claimed after mount is refused at accept without creating an account', function (): void {
-    $expired = Invitation::invite('raced-expired@test', 60);
-    $claimed = Invitation::invite('raced-claimed@test', 604800);
+test('Sink no longer owns human authentication artifacts', function (): void {
+    $forbiddenClasses = [
+        'App\\Actions\\Fortify\\CreateNewUser',
+        'App\\Actions\\Fortify\\ResetUserPassword',
+        'App\\Http\\Middleware\\AuthenticateConsoleOrLocal',
+        'App\\Livewire\\Actions\\Logout',
+        'App\\Livewire\\Admin\\Invitations',
+        'App\\Livewire\\Auth\\AcceptInvitation',
+        'App\\Livewire\\Settings\\DeleteUserForm',
+        'App\\Livewire\\Settings\\Profile',
+        'App\\Models\\User',
+        'App\\Providers\\FortifyServiceProvider',
+        'App\\SinkCredentialDeclaration',
+    ];
 
-    $userCount = User::query()->count();
-
-    $expiredComponent = Livewire::test(AcceptInvitation::class, ['token' => $expired->token])
-        ->assertSet('validInvitation', true)
-        ->set('name', 'Raced Expired User')
-        ->set('password', 'secret-pass')
-        ->set('password_confirmation', 'secret-pass');
-
-    $claimedComponent = Livewire::test(AcceptInvitation::class, ['token' => $claimed->token])
-        ->assertSet('validInvitation', true)
-        ->set('name', 'Raced Claimed User')
-        ->set('password', 'secret-pass')
-        ->set('password_confirmation', 'secret-pass');
-
-    Invitation::accept($claimed->token, [
-        'name' => 'Claimed Elsewhere User',
-        'password' => 'secret-pass',
-    ]);
-
-    $this->travel(61)->seconds();
-
-    $expiredComponent->call('accept')
-        ->assertNoRedirect()
-        ->assertSet('validInvitation', false);
-
-    $claimedComponent->call('accept')
-        ->assertNoRedirect()
-        ->assertSet('validInvitation', false);
-
-    expect(User::query()->count())->toBe($userCount + 1)
-        ->and(User::query()->where('email', 'raced-expired@test')->exists())->toBeFalse()
-        ->and(User::query()->where('email', 'raced-claimed@test')->count())->toBe(1)
-        ->and(User::query()->where('email', 'raced-claimed@test')->first()?->name)->toBe('Claimed Elsewhere User')
-        ->and($expired->refresh()->accepted_at)->toBeNull()
-        ->and($claimed->refresh()->accepted_at)->not->toBeNull()
-        ->and(Auth::check())->toBeFalse();
-});
-
-test('invitation accept guard properties cannot be forced from the client', function (): void {
-    $userCount = User::query()->count();
-
-    try {
-        Livewire::test(AcceptInvitation::class, ['token' => 'bogus-token'])
-            ->set('name', 'Forced User')
-            ->set('password', 'secret-pass')
-            ->set('password_confirmation', 'secret-pass')
-            ->set('validInvitation', true)
-            ->set('token', 'bogus-token')
-            ->call('accept');
-    } catch (CannotUpdateLockedPropertyException $exception) {
-        expect($exception->property)->toBeIn(['validInvitation', 'token']);
+    foreach ($forbiddenClasses as $class) {
+        expect(class_exists($class))->toBeFalse($class);
     }
 
-    $this->assertDatabaseCount('users', $userCount);
+    foreach ([
+        app_path('Models/User.php'),
+        base_path('database/factories/UserFactory.php'),
+        config_path('fortify.php'),
+        resource_path('views/layouts/auth.blade.php'),
+        resource_path('views/livewire/settings/profile.blade.php'),
+        base_path('routes/settings.php'),
+    ] as $path) {
+        expect(file_exists($path))->toBeFalse($path);
+    }
+
+    expect(InstalledVersions::isInstalled('laravel/fortify'))->toBeFalse()
+        ->and(Route::has('login'))->toBeFalse()
+        ->and(Route::has('register'))->toBeFalse()
+        ->and(Route::has('profile.edit'))->toBeFalse();
+});
+
+test('the package mounts and serves the standalone human lifecycle', function (): void {
+    foreach ([
+        'bfc.login',
+        'bfc.login.store',
+        'bfc.logout',
+        'bfc.password.request',
+        'bfc.password.email',
+        'bfc.password.reset',
+        'bfc.password.reset.form',
+        'bfc.password.update',
+        'bfc.invitations.accept',
+        'bfc.invitations.accept.form',
+        'bfc.invitations.accept.store',
+        'bfc.members.index',
+        'bfc.members.invitations.store',
+        'bfc.members.role.update',
+        'bfc.members.destroy',
+        'bfc.sessions.index',
+        'bfc.sessions.destroy',
+        'bfc.sessions.destroy-others',
+    ] as $routeName) {
+        expect(Route::has($routeName))->toBeTrue($routeName)
+            ->and(Route::getRoutes()->getByName($routeName)?->gatherMiddleware())
+            ->toContain(EnsureStandaloneAuthority::class);
+    }
+
+    assertTestMarker($this->get(route('bfc.login'))->assertOk(), 'login-form');
+    assertTestMarker($this->get(route('bfc.password.request'))->assertOk(), 'password-request-form');
+
+    $owner = User::query()->create([
+        'name' => 'Test Created Owner',
+        'email' => 'test-created-owner@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
+    $owner->forceFill([
+        'role' => UserRole::Owner->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
+
+    $this->post(route('bfc.login.store'), [
+        'email' => $owner->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+
+    $home = $this->get(route('bfc.ui.home'))->assertOk();
+    assertTestMarker($home, 'ui-shell');
+    assertTestMarker($home, 'ui-nav-member-management');
+    assertTestMarker($home, 'ui-nav-session-management');
+    assertTestMarker($home, 'ui-nav-managed-transitions');
+    assertTestMarker($home, 'ui-nav-personal-credentials', present: false);
+    assertTestMarker($home, 'ui-nav-installation-credentials', present: false);
+
+    $members = $this->get(route('bfc.members.index'))->assertOk()->assertSee($owner->email);
+    assertTestMarker($members, 'members-management');
+    assertTestMarker($members, 'members-item');
+
+    $this->post(route('bfc.logout'))->assertRedirect(route('bfc.login'));
     $this->assertGuest();
 });
 
-test('admin invitations page is admin only and creates invitations', function (): void {
-    $this->freezeTime();
-
-    $admin = User::factory()->create();
-    $admin->forceFill(['is_admin' => true])->save();
-
-    $this->actingAs($admin)
-        ->get(route('invitations'))
-        ->assertOk()
-        ->assertSee('Invitations');
-
-    Livewire::actingAs($admin)
-        ->test(Invitations::class)
-        ->set('email', 'new-user@test')
-        ->call('createInvitation')
-        ->assertSet('email', '')
-        ->assertSet('invitationLink', fn (?string $link): bool => is_string($link) && str_contains($link, '/register/'));
-
-    $invitation = Invitation::query()->where('email', 'new-user@test')->firstOrFail();
-
-    expect($invitation->accepted_at)->toBeNull()
-        ->and($invitation->token)->not->toBeEmpty()
-        ->and($invitation->expires_at?->timestamp)->toBe(now()->addSeconds(604800)->timestamp);
-});
-
-test('non admins and guests cannot visit the invitations page', function (): void {
-    $this->actingAs(User::factory()->create())
-        ->get(route('invitations'))
-        ->assertForbidden();
-
-    auth()->logout();
-
-    $this->get(route('invitations'))
-        ->assertRedirect(route('login'));
-});
-
-test('create admin command creates an admin user', function (): void {
-    $exitCode = Artisan::call('create-admin', [
-        '--email' => 'admin@test.com',
-        '--password' => 'secret-pass',
-        '--name' => 'Admin',
+test('the package create admin command creates the first owner locally', function (): void {
+    expect(Artisan::call('create-admin', [
+        '--email' => 'command-owner@example.test',
+        '--password' => 'test-created-password',
+        '--name' => 'Command Owner',
         '--local' => true,
-    ]);
+    ]))->toBe(0);
 
-    expect($exitCode)->toBe(0);
+    $owner = User::query()->where('email', 'command-owner@example.test')->sole();
 
-    $admin = User::query()->where('email', 'admin@test.com')->firstOrFail();
-
-    expect($admin->is_admin)->toBeTrue();
+    expect($owner->name)->toBe('Command Owner')
+        ->and($owner->role)->toBe(UserRole::Owner->value)
+        ->and($owner->status)->toBe('active');
 });
