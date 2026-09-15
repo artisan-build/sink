@@ -1,20 +1,21 @@
 <?php
 
-use App\SinkCredentialDeclaration;
-use App\SinkHeadlineLabel;
+declare(strict_types=1);
+
 use ArtisanBuild\BuiltForCloud\Auth\CredentialGuard;
 use ArtisanBuild\BuiltForCloud\BurnMode;
 use ArtisanBuild\BuiltForCloud\Contracts\AuthorizesCredentialVerbs;
 use ArtisanBuild\BuiltForCloud\Contracts\CredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\Contracts\DeclaresBurnMode;
-use ArtisanBuild\BuiltForCloud\Contracts\DeclaresHeadlineStat;
 use ArtisanBuild\BuiltForCloud\Contracts\DeclaresHolderResolution;
 use ArtisanBuild\BuiltForCloud\Contracts\DeclaresPresentationCadence;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\CredentialVerb;
 use ArtisanBuild\BuiltForCloud\DefaultCredentialDeclaration;
 use ArtisanBuild\BuiltForCloud\OperatorAbility;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
+use ArtisanBuild\BuiltForCloud\Testing\MintedTestCredential;
 use ArtisanBuild\BuiltForCloud\Testing\WithCredentials;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Http\Request;
@@ -30,6 +31,10 @@ uses(WithCredentials::class, ContractAssertions::class);
 
 beforeEach(function (): void {
     config([
+        'auth.guards.bfc' => [
+            'driver' => 'bfc',
+            'provider' => 'users',
+        ],
         'built-for-cloud.vitals.app_version' => '0.2.0',
         'built-for-cloud.vitals.deployed_at' => '2026-08-31T00:00:00+00:00',
         'built-for-cloud.vitals.deployment_id' => 'sink-console-vitals-test',
@@ -50,41 +55,31 @@ beforeEach(function (): void {
     Message::query()->delete();
 });
 
-test('production wiring preserves the default declaration contract and behavior', function (): void {
+test('production wiring uses the package default declaration without a Sink adapter', function (): void {
     $declaration = resolve(CredentialDeclaration::class);
     $request = Request::create('/bfc/console/vitals');
-    $credential = $this->mintCredential()->credential;
-
-    $defaultOptionalInterfaces = [
+    $credential = consoleVitalsReader()->credential;
+    $expectedInterfaces = [
         AuthorizesCredentialVerbs::class,
+        CredentialDeclaration::class,
         DeclaresBurnMode::class,
         DeclaresHolderResolution::class,
         DeclaresPresentationCadence::class,
     ];
-    $actualDefaultInterfaces = array_values(array_diff(
-        class_implements(DefaultCredentialDeclaration::class),
-        [CredentialDeclaration::class],
-    ));
-    $expectedSinkInterfaces = [
-        ...$defaultOptionalInterfaces,
-        CredentialDeclaration::class,
-        DeclaresHeadlineStat::class,
-    ];
-    $actualSinkInterfaces = array_values(class_implements(SinkCredentialDeclaration::class));
+    $actualInterfaces = array_values(class_implements(DefaultCredentialDeclaration::class));
 
-    sort($defaultOptionalInterfaces);
-    sort($actualDefaultInterfaces);
-    sort($expectedSinkInterfaces);
-    sort($actualSinkInterfaces);
+    sort($expectedInterfaces);
+    sort($actualInterfaces);
 
     expect(config('auth.guards.bfc'))->toBe([
         'driver' => 'bfc',
         'provider' => 'users',
     ])->and(Auth::guard('bfc'))->toBeInstanceOf(CredentialGuard::class)
-        ->and($declaration)->toBeInstanceOf(SinkCredentialDeclaration::class)
-        ->and($actualDefaultInterfaces)->toBe($defaultOptionalInterfaces)
-        ->and($actualSinkInterfaces)->toBe($expectedSinkInterfaces)
-        ->and($declaration::HEADLINE_VOCABULARY)->toBe(SinkHeadlineLabel::class)
+        ->and(config('built-for-cloud.credentials.declaration'))->toBeNull()
+        ->and($declaration)->toBeInstanceOf(DefaultCredentialDeclaration::class)
+        ->and($actualInterfaces)->toBe($expectedInterfaces)
+        ->and(class_exists('App\\SinkCredentialDeclaration'))->toBeFalse()
+        ->and(class_exists('App\\SinkHeadlineLabel'))->toBeFalse()
         ->and($declaration->burnMode())->toBe(BurnMode::FirstUse)
         ->and($declaration->resolveSubject($request))->toBeNull()
         ->and($declaration->resolveHolderEmail($credential->id))->toBeNull()
@@ -97,34 +92,22 @@ test('production wiring preserves the default declaration contract and behavior'
     }
 });
 
-test('an exact metadata reader receives the retained message headline and bounded shape', function (): void {
+test('an exact dashboard metadata reader receives the bounded default shape', function (): void {
     seedConsoleVitalsMessages(3);
-
-    $reader = $this->mintCredential([
-        'subject_type' => SubjectType::Operator,
-        'subject_ref' => 'console-vitals-reader',
-        'abilities' => [OperatorAbility::MetadataRead->value],
-    ]);
+    $reader = consoleVitalsReader();
 
     $response = $this->getJson('/bfc/console/vitals', [
         'Authorization' => $reader->bearerHeader(),
     ])->assertSuccessful()
-        ->assertJsonPath('headline', [
-            'value' => 3,
-            'label' => 'retained-messages',
-            'unit' => 'count',
-        ]);
+        ->assertJsonPath('headline', null);
 
     $this->assertBuiltForCloudMetadataEndpoint($response, 'GET /bfc/console/vitals');
 });
 
 test('the dashboard rejects a metadata reader carrying any additional ability', function (): void {
-    $reader = $this->mintCredential([
-        'subject_type' => SubjectType::Operator,
-        'subject_ref' => 'exact-console-vitals-reader',
-        'abilities' => [OperatorAbility::MetadataRead->value],
-    ]);
+    $reader = consoleVitalsReader();
     $overpowered = $this->mintCredential([
+        'purpose' => CredentialPurpose::DashboardMetadata,
         'subject_type' => SubjectType::Operator,
         'subject_ref' => 'overpowered-console-vitals-reader',
         'abilities' => [
@@ -142,14 +125,9 @@ test('the dashboard rejects a metadata reader carrying any additional ability', 
     ])->assertForbidden();
 });
 
-test('headline collection counts on the sink connection without loading message rows', function (): void {
+test('default vitals do not query or expose Sink message rows', function (): void {
     seedConsoleVitalsMessages(4);
-
-    $reader = $this->mintCredential([
-        'subject_type' => SubjectType::Operator,
-        'subject_ref' => 'query-shape-console-vitals-reader',
-        'abilities' => [OperatorAbility::MetadataRead->value],
-    ]);
+    $reader = consoleVitalsReader();
     $sink = DB::connection((string) config('sink-server.database.connection'));
     $sink->flushQueryLog();
     $sink->enableQueryLog();
@@ -158,31 +136,22 @@ test('headline collection counts on the sink connection without loading message 
         $this->getJson('/bfc/console/vitals', [
             'Authorization' => $reader->bearerHeader(),
         ])->assertSuccessful()
-            ->assertJsonPath('headline.value', 4);
+            ->assertJsonPath('headline', null);
     } finally {
         $queries = $sink->getQueryLog();
         $sink->disableQueryLog();
     }
 
     $messageQueries = collect($queries)
-        ->filter(fn (array $query): bool => Str::contains(Str::lower($query['query']), 'from "messages"'))
-        ->values();
-    $messageSql = Str::of((string) $messageQueries->first()['query'])->lower()->squish()->toString();
+        ->filter(fn (array $query): bool => Str::contains(Str::lower($query['query']), 'from "messages"'));
 
-    expect($messageQueries)->toHaveCount(1)
-        ->and($messageSql)->toBe('select count(*) as "aggregate" from "messages"');
+    expect($messageQueries)->toBeEmpty();
 });
 
-test('repeated authorized polls keep the headline cost at one aggregate query each', function (): void {
+test('repeated authorized polls remain independent of the Sink message store', function (): void {
     seedConsoleVitalsMessages(4);
-
-    $reader = $this->mintCredential([
-        'subject_type' => SubjectType::Operator,
-        'subject_ref' => 'poll-cost-console-vitals-reader',
-        'abilities' => [OperatorAbility::MetadataRead->value],
-    ]);
+    $reader = consoleVitalsReader();
     $sink = DB::connection((string) config('sink-server.database.connection'));
-
     $pollCounts = [];
 
     foreach (range(1, 3) as $poll) {
@@ -193,7 +162,7 @@ test('repeated authorized polls keep the headline cost at one aggregate query ea
             $this->getJson('/bfc/console/vitals', [
                 'Authorization' => $reader->bearerHeader(),
             ])->assertSuccessful()
-                ->assertJsonPath('headline.value', 4);
+                ->assertJsonPath('headline', null);
         } finally {
             $queries = collect($sink->getQueryLog());
             $sink->disableQueryLog();
@@ -204,16 +173,11 @@ test('repeated authorized polls keep the headline cost at one aggregate query ea
             ->count();
     }
 
-    expect($pollCounts)->toBe([1 => 1, 2 => 1, 3 => 1]);
+    expect($pollCounts)->toBe([1 => 0, 2 => 0, 3 => 0]);
 });
 
 test('the metadata conformance instrument rejects an added free text field', function (): void {
-    $reader = $this->mintCredential([
-        'subject_type' => SubjectType::Operator,
-        'subject_ref' => 'conformance-console-vitals-reader',
-        'abilities' => [OperatorAbility::MetadataRead->value],
-    ]);
-
+    $reader = consoleVitalsReader();
     $valid = $this->getJson('/bfc/console/vitals', [
         'Authorization' => $reader->bearerHeader(),
     ])->assertSuccessful();
@@ -228,6 +192,16 @@ test('the metadata conformance instrument rejects an added free text field', fun
     expect(fn () => $this->assertBuiltForCloudMetadataEndpoint($decoy, 'GET /bfc/console/vitals'))
         ->toThrow(AssertionFailedError::class);
 });
+
+function consoleVitalsReader(): MintedTestCredential
+{
+    return test()->mintCredential([
+        'purpose' => CredentialPurpose::DashboardMetadata,
+        'subject_type' => SubjectType::Operator,
+        'subject_ref' => 'console-vitals-reader-'.Str::ulid(),
+        'abilities' => [OperatorAbility::MetadataRead->value],
+    ]);
+}
 
 function seedConsoleVitalsMessages(int $count): void
 {
