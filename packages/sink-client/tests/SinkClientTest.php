@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Symfony\Component\Console\Output\BufferedOutput;
+use Symfony\Component\Process\Process;
 
 function selectSinkMailer(array $overrides = []): void
 {
@@ -218,7 +219,22 @@ it('installs Sink settings into a host env file and pins the client constraint',
     $host = sys_get_temp_dir().'/sink-client-install-'.bin2hex(random_bytes(5));
     mkdir($host, 0755, true);
     file_put_contents($host.'/.env', 'APP_NAME=Test'.PHP_EOL);
-    file_put_contents($host.'/composer.json', json_encode(['require' => (object) []], JSON_THROW_ON_ERROR));
+    file_put_contents($host.'/composer.json', <<<'JSON'
+{
+    "name": "fixture/app",
+    "description": "Fixture",
+    "license": "MIT",
+    "require": {},
+    "require-dev": {},
+    "autoload": {
+        "psr-4": {}
+    },
+    "extra": {
+        "empty_object": {},
+        "empty_list": []
+    }
+}
+JSON.PHP_EOL);
 
     app()->setBasePath($host);
     app()->useEnvironmentPath($host);
@@ -229,12 +245,19 @@ it('installs Sink settings into a host env file and pins the client constraint',
         '--no-interaction' => true,
     ]);
 
-    $composer = json_decode((string) file_get_contents($host.'/composer.json'), true, 512, JSON_THROW_ON_ERROR);
+    $composerPath = $host.'/composer.json';
+    $composer = json_decode((string) file_get_contents($composerPath), flags: JSON_THROW_ON_ERROR);
 
     expect(Artisan::output())->toContain('Set MAIL_MAILER=sink')
         ->and((string) file_get_contents($host.'/.env'))->toContain('SINK_URL=https://sink.test')
         ->and((string) file_get_contents($host.'/.env'))->toContain('SINK_TOKEN=secret')
-        ->and($composer['require']['artisan-build/sink-client'])->toBe('^1');
+        ->and($composer->require->{'artisan-build/sink-client'})->toBe('^1')
+        ->and($composer->{'require-dev'})->toBeInstanceOf(stdClass::class)
+        ->and($composer->autoload->{'psr-4'})->toBeInstanceOf(stdClass::class)
+        ->and($composer->extra->empty_object)->toBeInstanceOf(stdClass::class)
+        ->and($composer->extra->empty_list)->toBe([]);
+
+    (new Process(['composer', 'validate', '--no-check-publish', '--no-check-lock', $composerPath]))->mustRun();
 });
 
 it('reports compatible and incompatible server capability ranges', function (): void {

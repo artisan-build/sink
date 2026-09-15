@@ -43,20 +43,20 @@ trait WritesSinkInstallFiles
     private function pinComposerConstraint(string $path, string $package, int $major): void
     {
         $this->replaceFile($path, function (string $contents) use ($package, $major): string {
-            $composer = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+            $composer = json_decode($contents, flags: JSON_THROW_ON_ERROR);
 
-            if (! is_array($composer)) {
+            if (! $composer instanceof \stdClass) {
                 throw new RuntimeException('The Composer target must contain an object.');
             }
 
-            $requirements = $composer['require'] ?? [];
+            $requirements = property_exists($composer, 'require') ? $composer->require : new \stdClass;
 
-            if (! is_array($requirements)) {
+            if (! $requirements instanceof \stdClass) {
                 throw new RuntimeException('The Composer require member must contain an object.');
             }
 
-            $requirements[$package] = '^'.$major;
-            $composer['require'] = $requirements;
+            $requirements->{$package} = '^'.$major;
+            $composer->require = $requirements;
 
             return json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR).PHP_EOL;
         }, 0644);
