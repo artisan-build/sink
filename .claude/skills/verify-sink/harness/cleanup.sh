@@ -8,7 +8,6 @@ load_run_metadata
 mkdir -p "$EVIDENCE_DIR"
 exec > >(tee -a "$EVIDENCE_DIR/cleanup.log") 2>&1
 bind_run_connection
-bind_run_secrets
 assert_disposable_resource_names
 
 failures=0
@@ -54,6 +53,7 @@ kill_tree "${SERVER_PID:-}" "server"
 kill_tree "${SERVER_LOG_PID:-}" "server-log-redactor"
 kill_tree "${AUTHORITY_PID:-}" "managed-authority"
 kill_tree "${REDIS_PID:-}" "redis"
+kill_tree "${SECRET_PID:-}" "secret-keeper"
 
 if [ -n "${PORT:-}" ] && lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
 	printf '\033[31mFAIL\033[0m  port %s still has listener pids: %s\n' "$PORT" "$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null | tr '\n' ' ')"
@@ -76,15 +76,13 @@ else
 fi
 
 if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then
-	docker run --rm --network "container:$MINIO_CONTAINER" minio/mc alias set verify http://127.0.0.1:9000 "$MINIO_ACCESS_KEY_" "$MINIO_SECRET_KEY_" >/dev/null 2>&1 || true
-	docker run --rm --network "container:$MINIO_CONTAINER" minio/mc rb --force "verify/$MINIO_BUCKET" >/dev/null 2>&1 || true
 	docker rm -f "$MINIO_CONTAINER" >/dev/null
 fi
 if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then
 	printf '\033[31mFAIL\033[0m  MinIO container %s survived cleanup\n' "$MINIO_CONTAINER"
 	failures=$((failures + 1))
 else
-	ok "removed exact MinIO bucket $MINIO_BUCKET and container $MINIO_CONTAINER"
+	ok "removed exact MinIO container $MINIO_CONTAINER and its run-unique bucket $MINIO_BUCKET"
 fi
 for _ in $(seq 1 30); do
 	lsof -nP -iTCP:"$MINIO_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || break
@@ -96,7 +94,7 @@ if lsof -nP -iTCP:"$MINIO_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
 else
 	ok "MinIO port $MINIO_PORT is free"
 fi
-rm -f "$RUN_DIR/authority-key.pem" "$RUN_DIR/authority-cert.pem" "$RUN_DIR/server-log.pipe"
+rm -f "$RUN_DIR/authority-key.pem" "$RUN_DIR/authority-cert.pem" "$RUN_DIR/server-log.pipe" "$RUN_SECRET_PIPE"
 
 if [[ "${DB_NAME:-}" =~ ^sink_verify_[a-z0-9_]+$ ]]; then
 	if php -r '

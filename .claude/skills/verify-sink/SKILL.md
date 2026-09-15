@@ -32,6 +32,7 @@ managed-authority stub. It reaches only loopback and never uses external Scalpel
 ├── current-run                   current run id
 └── runs/<run-id>/
     ├── run.env                   non-secret run identity, port, PIDs, SHA, exact-tree provenance, database, PostgreSQL host/port/user, and credential reference
+    ├── run-secret.pipe           runtime-only FIFO served by the recorded secret-keeper process
     ├── launched.env              exported variable names only, never values
     ├── server.log                 request log with invitation routes redacted before disk
     ├── worker.log
@@ -109,7 +110,8 @@ Doctor checks all of the following and exits non-zero if any check fails:
 9. Playwright and the isolated Chromium executable are present.
 
 Doctor writes `evidence/doctor.log`. It reports only credential **names** and verdicts, never values.
-Disposable service credentials are derived in process and absent from `run.env`.
+Disposable service credentials derive from a random value held by the recorded secret-keeper process;
+the value is served only through a mode-0600 FIFO and is absent from files and evidence.
 
 Run Doctor again after anything surprising and before trusting further evidence.
 

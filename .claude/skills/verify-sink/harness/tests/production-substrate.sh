@@ -8,11 +8,11 @@ HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 fail() { printf 'FAIL %s\n' "$*" >&2; exit 1; }
 
-RUN_ID=first_run
+RUN_SECRET_=first_secret
 bind_run_secrets
 first_redis="$REDIS_PASSWORD_"
 first_minio="$MINIO_SECRET_KEY_"
-RUN_ID=second_run
+RUN_SECRET_=second_secret
 bind_run_secrets
 [ "$first_redis" != "$REDIS_PASSWORD_" ] || fail 'Redis isolation secret did not vary by run'
 [ "$first_minio" != "$MINIO_SECRET_KEY_" ] || fail 'MinIO isolation secret did not vary by run'

@@ -42,6 +42,10 @@ MINIO_CONTAINER="sink-verify-minio-${RUN_ID//_/-}"
 MINIO_BUCKET="sink-verify-${RUN_ID//_/-}"
 AUTHORITY_CERT="$RUN_DIR/authority-cert.pem"
 AUTHORITY_KEY="$RUN_DIR/authority-key.pem"
+RUN_SECRET_PIPE="$RUN_DIR/run-secret.pipe"
+RUN_SECRET_="$(openssl rand -hex 32)"
+mkfifo "$RUN_SECRET_PIPE"
+chmod 600 "$RUN_SECRET_PIPE"
 assert_disposable_database_name
 assert_disposable_resource_names
 bind_run_secrets
@@ -73,7 +77,8 @@ ok "created PostgreSQL database $DB_NAME"
 	printf 'PGPASSWORD_SOURCE=%q\n' "$PGPASSWORD_SOURCE"
 	printf 'REDIS_PORT_=%q\nMINIO_PORT=%q\nAUTHORITY_PORT=%q\n' "$REDIS_PORT_" "$MINIO_PORT" "$AUTHORITY_PORT"
 	printf 'MINIO_CONTAINER=%q\nMINIO_BUCKET=%q\nAUTHORITY_CERT=%q\n' "$MINIO_CONTAINER" "$MINIO_BUCKET" "$AUTHORITY_CERT"
-	printf 'SERVER_PID=\nSERVER_LOG_PID=\nWORKER_PID=\nREDIS_PID=\nAUTHORITY_PID=\nSCHEDULER_PID=\n'
+	printf 'RUN_SECRET_PIPE=%q\n' "$RUN_SECRET_PIPE"
+	printf 'SERVER_PID=\nSERVER_LOG_PID=\nWORKER_PID=\nREDIS_PID=\nAUTHORITY_PID=\nSCHEDULER_PID=\nSECRET_PID=\n'
 } > "$RUN_DIR/run.env"
 printf '%s' "$RUN_ID" > "$CURRENT_RUN_FILE"
 
@@ -87,6 +92,14 @@ cleanup_failed_launch() {
 	return "$status"
 }
 trap cleanup_failed_launch EXIT
+
+(
+	while true; do
+		printf '%s\n' "$RUN_SECRET_" > "$RUN_SECRET_PIPE" || exit
+	done
+) &
+SECRET_PID=$!
+record_run_pid SECRET_PID "$SECRET_PID"
 
 export_run_env
 env -0 | tr '\0' '\n' | perl -ne 'print "$1\n" if /^([A-Z_][A-Z0-9_]*)=/' | sort -u > "$RUN_DIR/launched.env"

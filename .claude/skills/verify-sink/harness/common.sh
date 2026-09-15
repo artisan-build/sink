@@ -90,11 +90,15 @@ load_run() {
 }
 
 bind_run_secrets() {
-	REDIS_PASSWORD_="$(printf '%s' "redis:$RUN_ID" | openssl dgst -sha256 -hex | awk '{print $2}')"
-	MINIO_ACCESS_KEY_="verify$(printf '%s' "$RUN_ID" | openssl dgst -sha256 -hex | awk '{print substr($2,1,16)}')"
-	MINIO_SECRET_KEY_="$(printf '%s' "minio:$RUN_ID" | openssl dgst -sha256 -hex | awk '{print $2}')"
-	AUTHORITY_SECRET_="$(printf '%s' "authority:$RUN_ID" | openssl dgst -sha256 -hex | awk '{print $2}')"
-	AUTHORITY_CODE_="$(printf '%s' "code:$RUN_ID" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	if [ -z "${RUN_SECRET_:-}" ]; then
+		[ -p "${RUN_SECRET_PIPE:-}" ] || die "The run's in-memory secret pipe is unavailable."
+		IFS= read -r -t 2 RUN_SECRET_ < "$RUN_SECRET_PIPE" || die "The run's in-memory secret keeper did not answer."
+	fi
+	REDIS_PASSWORD_="$(printf '%s' "redis:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	MINIO_ACCESS_KEY_="verify$(printf '%s' "minio-user:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print substr($2,1,16)}')"
+	MINIO_SECRET_KEY_="$(printf '%s' "minio:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	AUTHORITY_SECRET_="$(printf '%s' "authority:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
+	AUTHORITY_CODE_="$(printf '%s' "code:$RUN_SECRET_" | openssl dgst -sha256 -hex | awk '{print $2}')"
 }
 
 export_run_env() {
