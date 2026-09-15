@@ -38,7 +38,13 @@ Set the following environment values. Keep credentials in the deployment environ
 
 For a source app hosted on Laravel Cloud or Forge, use Scalpels' `connect_site` tool after confirming the target site with the human. Pass the `team`, `host`, opaque `target`, and `provider_deployment` returned by Scalpels' listing tools. Scalpels writes the Sink URL and credential into the hosting environment; the credential is never returned or shown.
 
-For other hosting, have the Sink operator issue a source-app credential with Sink's operator-run `php artisan token:create <label>` command. Move the one-time value directly into the source app's secret manager or enter it in the masked prompt from:
+For other hosting, have the Sink operator mint an installation-owned bearer credential with purpose `sink.ingest` mapped to capability `consumption`:
+
+```bash
+php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.ingest --abilities=consumption --name=<source-app> --local
+```
+
+For an MCP client, use purpose `sink.mcp` mapped to capability `mcp`. Move the one-time value directly into the source app's secret manager or enter it in the masked prompt from:
 
 ```bash
 php artisan sink:install --url=https://sink.example.test

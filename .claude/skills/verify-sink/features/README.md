@@ -21,7 +21,7 @@ Anything else is a recipe, not proof.
 2. `.claude/skills/verify-sink/harness/launch.sh` ended with `instance is worth driving`.
 3. `BASE_URL` is `http://127.0.0.1:<run-port>`, never a Herd `.test` hostname.
 4. The default and named `sink` connections both identify this run's PostgreSQL database.
-5. `.claude/skills/verify-sink/harness/seed-actor.sh` has created the actor a recipe names, unless account creation is the feature.
+5. Managed authentication has completed through the disposable authority; `seed-actor.sh` is only for standalone fixture setup.
 6. `.claude/skills/verify-sink/harness/send-message.sh` has created a captured message when the feature needs inbox state.
 
 ## Driving conventions
@@ -30,13 +30,11 @@ Anything else is a recipe, not proof.
   `[data-test=...]` selectors only where they exist.
 - Run every layout-sensitive recipe at `1280x800` and `390x844`, with `overflow` and screenshots.
 - Strings containing `{{viewport}}` are made unique per viewport by `drive.cjs`.
-- Login is throttled at five attempts per minute per email/IP. A relaunch resets the disposable
-  database-backed limiter state; repeated drives may otherwise receive 429.
+- Enter through `/bfc/managed/login`; the harness drives the real handoff, exchange, and session boundary.
 - `wire:model.live` filters need a short `wait` before asserting the changed table.
 - A seeded actor or helper-ingested message is precondition state, not proof of a UI feature.
 - Read side effects from PostgreSQL with `.claude/skills/verify-sink/harness/inspect-db.sh` and keep the JSON under `evidence/`.
-- The run uses local disk and database queue, not production object storage and managed queue. Name
-  that caveat in every result that depends on message parsing or blobs.
+- The run uses private MinIO and local Redis rather than Cloud-managed implementations; name that caveat.
 
 ## Unmapped surfaces
 

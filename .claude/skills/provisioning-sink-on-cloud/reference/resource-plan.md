@@ -66,7 +66,7 @@ for kv in \
   'QUEUE_CONNECTION=redis' 'SINK_QUEUE_CONNECTION=redis' \
   'SINK_RETENTION_DAYS=7' 'SINK_MAX_MESSAGES=<message-cap>' 'SINK_MAX_TOTAL_BYTES=<byte-cap>' \
   'SINK_MCP_PATH=/mcp' \
-  'FILESYSTEM_DISK=private' 'FALLBACK_TOKEN=<random-bootstrap-token>' ; do
+  'FILESYSTEM_DISK=private' ; do
   k=${kv%%=*}; v=${kv#*=}
   cloud environment:variables <env-id> --action set --key "$k" --value "$v" -n --force
 done
@@ -79,12 +79,11 @@ cloud deploy sink-<client> main --no-wait -n             # returns deployment_id
 cloud deployment:get <deployment-id> --json -n           # poll until deployment.succeeded
 cloud command:run <env-id> --cmd="php artisan migrate --force" -n
 
-# 10. First admin + first source-app token.
+# 10. First admin + installation-owned credentials.
 cloud command:run <env-id> --cmd="php artisan create-admin" -n
-#    Run token:create locally on the operator machine, from the Sink app clone with .cloud/config.json bound.
-#    <label> is a human token label, such as the source app's name, not a deployed application id.
-php artisan token:create <label>
-#    The driver command stores only the hash in the deployed environment and prints the plaintext once.
+cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.ingest --abilities=consumption --name=<source-app> --local" -n
+cloud command:run <env-id> --cmd="php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.mcp --abilities=mcp --name=<mcp-client> --local" -n
+#    Transfer each shown-once secret directly to its destination; never copy it into chat or source control.
 ```
 
 ## Environment variable checklist
@@ -106,7 +105,6 @@ app is deployed. Leave `SINK_DB_*` unset so Sink uses the exact default connecti
 | `SINK_MAX_MESSAGES` | tier-specific cap | Protects Postgres and UI from unbounded growth. |
 | `SINK_MAX_TOTAL_BYTES` | tier-specific cap | Protects bucket storage. |
 | `SINK_MCP_PATH` | `/mcp` | Default MCP path. |
-| `FALLBACK_TOKEN` | random bootstrap token | Optional bootstrap token for ingest + MCP. Prefer per-app `token:create` tokens. |
 
 Do **not** configure Cloud-managed mail for Sink.
 

@@ -153,7 +153,7 @@ workers drain parse jobs.
 > [`provisioning-sink-on-cloud`](.claude/skills/provisioning-sink-on-cloud/SKILL.md)
 > skill that provisions Postgres, Redis, object storage, web, queue, and scheduler;
 > wires Sink configuration; deploys; migrates; runs `create-admin`; and issues the
-> first source-app token.
+> first installation-owned source-app credential.
 
 Required production environment:
 
@@ -171,16 +171,19 @@ Do not enable a Cloud-managed mail integration for the Sink app. Sink is the inb
 
 ## Adding a source app
 
-On the Sink server, issue a source application token locally with the
-`artisan-build/built-for-cloud` command:
+On the Sink installation, mint an installation-owned bearer credential for the
+source app. The purpose-to-capability mapping is closed: `sink.ingest` grants
+only `consumption`.
 
 ```shell
-php artisan token:create <label>
+php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=sink.ingest --abilities=consumption --name=<source-app> --local
 ```
 
-The command prints the plaintext token once and stores only its hash in
-`api_tokens`. Rotate, revoke, list, and inspect usage with `token:rotate`,
-`token:revoke`, `token:list`, and `token:usage`.
+The command prints the credential once. Move it directly into the source app's
+secret manager or the masked `sink:install` prompt; do not place it in chat,
+command transcripts, or source control. Manage it with the corresponding
+`bfc:credential:list`, `bfc:credential:rotate`, and `bfc:credential:revoke`
+commands, always using `--local` when operating on the current installation.
 
 In the source Laravel app:
 
@@ -207,7 +210,7 @@ silently swallowing production mail.
 > `vendor/artisan-build/sink-client/skills/configuring-sink-client/` once installed.
 > Point your agent at it and ask it to configure the Sink client. It covers
 > `composer require`, `sink:install`, setting `MAIL_MAILER=sink`, the production
-> fuse, token creation by the Sink operator, verifying a test send arrives, and
+> fuse, credential handoff by the Sink operator, verifying a test send arrives, and
 > troubleshooting.
 
 ## Connecting a coding agent (MCP)

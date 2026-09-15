@@ -70,11 +70,11 @@ Status: **recipe, not yet driven**.
     {"expectUrl":{"contains":"/dashboard"}},
     {"click":"[data-test='sidebar-menu-button']"},
     {"click":"[data-test='logout-button']"},
-    {"goto":"/login"},
+    {"goto":"/bfc/managed/login"},
     {"fillLabel":{"label":"Email address","value":"password-user@verify.test"}},
     {"fillLabel":{"label":"Password","value":"verify-password"}},
     {"click":"[data-test='login-button']"},
-    {"expectUrl":{"contains":"/login"}},
+    {"expectUrl":{"contains":"/bfc/managed/login"}},
     {"expectText":{"selector":"body","contains":"These credentials do not match our records."}}
   ]
   ```

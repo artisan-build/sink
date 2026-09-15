@@ -115,7 +115,7 @@ async function screenshot(page, viewport, name, secrets) {
 async function runViewport(browser, viewport) {
 	if (!/^\d+x\d+$/.test(viewport)) throw new Error(`invalid viewport ${viewport}`)
 	const [width, height] = viewport.split('x').map(Number)
-	let context = await browser.newContext({ viewport: { width, height } })
+	let context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true })
 	let page = await context.newPage()
 	const consoleErrors = []
 	const responseErrors = []
@@ -209,7 +209,7 @@ async function runViewport(browser, viewport) {
 			record({ viewport, verb, detail: `${value.name} captured as [REDACTED]` }, secrets)
 		} else if (verb === 'newContext') {
 			await context.close()
-			context = await browser.newContext({ viewport: { width, height } })
+			context = await browser.newContext({ viewport: { width, height }, ignoreHTTPSErrors: true })
 			page = await context.newPage()
 			observe(page)
 			lastStatus = null
