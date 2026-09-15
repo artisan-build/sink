@@ -195,7 +195,7 @@ it('installs Sink settings into a host env file and pins the client constraint',
     $host = sys_get_temp_dir().'/sink-client-install-'.bin2hex(random_bytes(5));
     mkdir($host, 0755, true);
     file_put_contents($host.'/.env', 'APP_NAME=Test'.PHP_EOL);
-    file_put_contents($host.'/composer.json', json_encode(['require' => []], JSON_THROW_ON_ERROR));
+    file_put_contents($host.'/composer.json', json_encode(['require' => (object) []], JSON_THROW_ON_ERROR));
 
     app()->setBasePath($host);
     app()->useEnvironmentPath($host);

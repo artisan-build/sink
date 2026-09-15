@@ -1,112 +1,23 @@
 <?php
 
-use App\Models\User;
-use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleGuard;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleGuardConfiguration;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
-use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
-use ArtisanBuild\BuiltForCloud\Invitation;
+declare(strict_types=1);
+
+use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\OffboardedSubject;
+use ArtisanBuild\BuiltForCloud\RolePolicy;
+use ArtisanBuild\BuiltForCloud\StandaloneAccess;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\BuiltForCloud\UserRole;
 use ArtisanBuild\SinkServer\Models\Message;
-use Carbon\CarbonImmutable;
-use Illuminate\Session\Middleware\StartSession;
+use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
-/**
- * PR3 proves Sink's app authorization policy with authentic local and shipped
- * bfc-console sessions through synthetic probes. Production route and
- * bfc::layout wiring are covered by ConsoleLayoutTest.
- */
 beforeEach(function (): void {
-    expect((bool) config('built-for-cloud.console.enabled'))->toBeTrue()
-        ->and(config('auth.guards.'.ConsoleGuardConfiguration::GUARD.'.driver'))
-        ->toBe(ConsoleGuardConfiguration::DRIVER)
-        ->and(Auth::guard(ConsoleGuardConfiguration::GUARD))->toBeInstanceOf(ConsoleGuard::class);
-
-    Route::middleware([
-        StartSession::class,
-        'bfc.console',
-        'auth:'.ConsoleGuardConfiguration::GUARD,
-    ])->get('/_test/authorization/console-probe', function (): array {
-        $acting = resolve(ActingPrincipalResolver::class)->resolve();
-
-        return [
-            'principal' => $acting->identifier(),
-            'delegated' => $acting->delegated,
-            'role' => $acting->role?->value,
-            'row_role' => $acting->delegatedActor?->last_handoff_role->value,
-            'ability' => Gate::allows('administer-sink'),
-            'same_resolution' => $acting === resolve(ActingPrincipalResolver::class)->resolve(),
-            'local_session_user' => Auth::guard('web')->id(),
-        ];
-    });
-
-    Route::middleware([
-        StartSession::class,
-        'bfc.console',
-        'auth:'.ConsoleGuardConfiguration::GUARD,
-        'can:administer-sink',
-    ])->get('/_test/authorization/console-admin', fn (): array => ['authorized' => true]);
-
-    Route::middleware([StartSession::class, 'auth:web'])
-        ->get('/_test/authorization/local-probe', function (): array {
-            $acting = resolve(ActingPrincipalResolver::class)->resolve();
-
-            return [
-                'principal' => $acting->identifier(),
-                'delegated' => $acting->delegated,
-                'delegated_session_present' => $acting->delegatedSessionPresent(),
-                'refused' => $acting->wasRefused(),
-                'ability' => Gate::allows('administer-sink'),
-            ];
-        });
-
-    Route::middleware([StartSession::class, 'auth:web', 'can:administer-sink'])
-        ->get('/_test/authorization/local-admin', fn (): array => ['authorized' => true]);
-});
-
-test('the ability maps only local Sink admins to administrative standing', function (bool $isAdmin): void {
-    $user = authorizationUser($isAdmin);
-
-    $this->actingAs($user);
-    $acting = resolve(ActingPrincipalResolver::class)->resolve();
-
-    expect($acting->principal)->toBe($user)
-        ->and($acting->delegated)->toBeFalse()
-        ->and(Gate::allows('administer-sink'))->toBe($isAdmin);
-})->with([
-    'positive local admin' => [true],
-    'decoy local member is denied' => [false],
-]);
-
-test('guests have no administrative standing', function (): void {
-    expect(Gate::allows('administer-sink'))->toBeFalse();
-});
-
-test('with the Console disabled the ability still admits a local admin and denies a local member', function (bool $isAdmin): void {
-    config(['built-for-cloud.console.enabled' => false]);
-
-    $user = authorizationUser($isAdmin);
-    $this->actingAs($user);
-    $acting = resolve(ActingPrincipalResolver::class)->resolve();
-
-    expect($acting->delegated)->toBeFalse()
-        ->and(Gate::allows('administer-sink'))->toBe($isAdmin);
-})->with([
-    'positive local admin' => [true],
-    'decoy local member is denied' => [false],
-]);
-
-test('local route enforcement and every admin affordance share the ability', function (bool $isAdmin): void {
     $connection = (string) config('sink-server.database.connection');
 
     if (! Schema::connection($connection)->hasTable('messages')) {
@@ -118,256 +29,211 @@ test('local route enforcement and every admin affordance share the ability', fun
     }
 
     Storage::fake((string) config('sink-server.disk'));
+});
 
-    $user = authorizationUser($isAdmin);
-    $message = authorizationMessage();
-    $this->actingAs($user);
-
-    $dashboard = $this->get(route('dashboard'))->assertOk();
-    $inbox = $this->get(route('sink.inbox'))->assertOk();
-    $detail = $this->get(route('sink.message', $message))->assertOk();
-
-    $inbox->assertSee($message->subject);
-    $detail->assertSee($message->subject);
-
-    if ($isAdmin) {
-        assertTestMarker($dashboard, 'sidebar-invitations');
-        assertTestMarker($inbox, 'inbox-admin-purge');
-        assertTestMarker($detail, 'message-admin-delete');
-
-        $this->get(route('invitations'))->assertOk();
-        $this->delete(route('sink.inbox.purge'))->assertUnprocessable();
-        $this->delete(route('sink.message.destroy', $message))->assertRedirect(route('sink.inbox'));
-    } else {
-        assertTestMarker($dashboard, 'sidebar-invitations', present: false);
-        assertTestMarker($inbox, 'inbox-admin-purge', present: false);
-        assertTestMarker($detail, 'message-admin-delete', present: false);
-
-        $this->get(route('invitations'))->assertForbidden();
-        $this->delete(route('sink.inbox.purge'))->assertForbidden();
-        $this->delete(route('sink.message.destroy', $message))->assertForbidden();
-    }
+test('the package role policy defines Sink product and membership boundaries', function (
+    UserRole|string $role,
+    bool $canUseProduct,
+    bool $canManageMembers,
+    bool $canManageAdmins,
+    bool $canInitiateTransition,
+): void {
+    expect(RolePolicy::canUseProduct($role))->toBe($canUseProduct)
+        ->and(RolePolicy::canManageMembers($role))->toBe($canManageMembers)
+        ->and(RolePolicy::canManageAdmins($role))->toBe($canManageAdmins)
+        ->and(RolePolicy::canManage($role, UserRole::Member))->toBe($canManageMembers)
+        ->and(RolePolicy::canManage($role, UserRole::Admin))->toBe($canManageAdmins)
+        ->and(RolePolicy::canManage($role, UserRole::Owner))->toBeFalse()
+        ->and(RolePolicy::canInitiateModeTransition($role))->toBe($canInitiateTransition);
 })->with([
-    'positive local admin' => [true],
-    'decoy local member is denied' => [false],
+    'owner manages members, admins, and transitions' => [UserRole::Owner, true, true, true, true],
+    'admin manages members only' => [UserRole::Admin, true, true, false, false],
+    'member cannot manage membership' => [UserRole::Member, true, false, false, false],
+    'unknown role is denied' => ['unknown-role', false, false, false, false],
 ]);
 
-test('the invitations route denies an offboarded local admin and invalidates the surviving session', function (): void {
-    $admin = authorizationUser(true);
+test('every package role can inspect and explicitly delete or purge Sink messages', function (UserRole $role): void {
+    $user = authorizationUser($role);
+    ['message' => $message, 'attachment' => $attachment, 'raw' => $raw] = authorizationMessage(
+        app: 'authorization-'.$role->value,
+        subject: 'Core access for '.$role->value,
+    );
+    ['message' => $otherMessage] = authorizationMessage(
+        app: 'other-'.$role->value,
+        subject: 'Outside attachment scope',
+    );
 
-    $this->actingAs($admin)->withSession(['residue' => 'still-here']);
-    $this->get(route('invitations'))->assertOk();
+    $this->post(route('bfc.login.store'), [
+        'email' => $user->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+
+    $inbox = $this->get(route('sink.inbox'))->assertOk()->assertSee($message->subject);
+    assertTestMarker($inbox, 'inbox-purge');
+
+    $detail = $this->get(route('sink.message', $message))
+        ->assertOk()
+        ->assertSee($message->subject)
+        ->assertSee('X-Authorization-Test')
+        ->assertSee('https://example.test/authorization')
+        ->assertSee($attachment->filename);
+    assertTestMarker($detail, 'message-delete');
+
+    $this->get(route('sink.message.body', $message))
+        ->assertOk()
+        ->assertSee('Role body '.$role->value, false);
+    $this->get(route('sink.message.raw', $message))->assertOk()->assertContent($raw);
+
+    $download = $this->get(route('sink.message.attachment', [$message, $attachment]))->assertOk();
+    expect($download->streamedContent())->toBe('attachment for '.$role->value);
+
+    $this->get(route('sink.message.attachment', [$otherMessage, $attachment]))->assertNotFound();
+    $this->delete(route('sink.inbox.purge'))->assertUnprocessable();
+
+    $this->delete(route('sink.message.destroy', $message))->assertRedirect(route('sink.inbox'));
+    expect(Message::query()->whereKey($message->getKey())->exists())->toBeFalse();
+
+    ['message' => $purgeTarget] = authorizationMessage(
+        app: 'purge-'.$role->value,
+        subject: 'Scoped purge target',
+    );
+    ['message' => $purgeSurvivor] = authorizationMessage(
+        app: 'survivor-'.$role->value,
+        subject: 'Scoped purge survivor',
+    );
+
+    $this->delete(route('sink.inbox.purge'), ['app' => 'purge-'.$role->value])
+        ->assertRedirect(route('sink.inbox'));
+
+    expect(Message::query()->whereKey($purgeTarget->getKey())->exists())->toBeFalse()
+        ->and(Message::query()->whereKey($purgeSurvivor->getKey())->exists())->toBeTrue()
+        ->and(AppActionEvent::query()->where('action', 'message_deleted')->sole()->getAttributes())->toMatchArray([
+            'actor_type' => 'local_user',
+            'actor_ref' => (string) $user->getAuthIdentifier(),
+        ])->and(AppActionEvent::query()->where('action', 'messages_purged')->sole()->getAttributes())->toMatchArray([
+            'actor_type' => 'local_user',
+            'actor_ref' => (string) $user->getAuthIdentifier(),
+        ]);
+})->with([
+    'owner' => [UserRole::Owner],
+    'admin' => [UserRole::Admin],
+    'member' => [UserRole::Member],
+]);
+
+test('bfc auth denies an unknown package role across Sink core routes', function (): void {
+    $user = authorizationUser('unknown-role');
+    ['message' => $message, 'attachment' => $attachment] = authorizationMessage(
+        app: 'unknown-role',
+        subject: 'Unknown role must not access this',
+    );
+
+    $requests = [
+        ['getJson', route('sink.inbox'), []],
+        ['getJson', route('sink.message', $message), []],
+        ['getJson', route('sink.message.body', $message), []],
+        ['getJson', route('sink.message.raw', $message), []],
+        ['getJson', route('sink.message.attachment', [$message, $attachment]), []],
+        ['deleteJson', route('sink.message.destroy', $message), []],
+        ['deleteJson', route('sink.inbox.purge'), ['app' => 'unknown-role']],
+    ];
+
+    foreach ($requests as [$method, $uri, $data]) {
+        $this->actingAs($user)
+            ->withSession([
+                StandaloneAccess::SESSION_VERSION_KEY => $user->auth_session_version,
+                'authorization-residue' => 'present',
+            ])
+            ->{$method}($uri, $data)
+            ->assertForbidden()
+            ->assertSessionMissing('authorization-residue');
+    }
+
+    expect(Message::query()->whereKey($message->getKey())->exists())->toBeTrue()
+        ->and(AppActionEvent::query()->count())->toBe(0);
+});
+
+test('bfc auth denies an offboarded package user and invalidates the surviving session', function (): void {
+    $user = authorizationUser(UserRole::Owner);
+
+    $this->post(route('bfc.login.store'), [
+        'email' => $user->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    $this->get(route('sink.inbox'))->assertOk();
 
     OffboardedSubject::query()->create([
         'subject_type' => SubjectType::UserPrincipal,
-        'subject_ref' => $admin->email,
-        'user_id' => (string) $admin->getAuthIdentifier(),
+        'subject_ref' => $user->email,
+        'user_id' => (string) $user->getAuthIdentifier(),
         'offboarded_at' => now(),
     ]);
 
-    $this->get(route('invitations'))->assertForbidden();
-
-    expect(session()->has('residue'))->toBeFalse();
+    $this->withSession(['authorization-residue' => 'present'])
+        ->get(route('sink.inbox'))
+        ->assertForbidden()
+        ->assertSessionMissing('authorization-residue');
 });
 
-test('the shipped console guard admits delegated admins and denies delegated members', function (ConsoleRole $role): void {
-    $actor = authorizationDelegatedActor($role);
-
-    $this->withSession(authorizationDelegatedSession($actor, $role));
-
-    $response = $this->getJson('/_test/authorization/console-admin');
-
-    if ($role === ConsoleRole::Admin) {
-        $response->assertOk()->assertJsonPath('authorized', true);
-    } else {
-        $response->assertForbidden();
-    }
-})->with([
-    'positive delegated admin' => [ConsoleRole::Admin],
-    'decoy delegated member is denied' => [ConsoleRole::Member],
-]);
-
-test('a delegated member outranks a co-resident local admin from one resolved principal', function (): void {
-    $localAdmin = authorizationUser(true);
-    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
-
-    $this->actingAs($localAdmin)
-        ->withSession(authorizationDelegatedSession($actor, ConsoleRole::Member));
-
-    $this->getJson('/_test/authorization/console-probe')
-        ->assertOk()
-        ->assertJsonPath('principal', $actor->getAuthIdentifier())
-        ->assertJsonPath('delegated', true)
-        ->assertJsonPath('role', ConsoleRole::Member->value)
-        ->assertJsonPath('row_role', ConsoleRole::Admin->value)
-        ->assertJsonPath('ability', false)
-        ->assertJsonPath('same_resolution', true)
-        ->assertJsonPath('local_session_user', $localAdmin->getKey());
-});
-
-test('a delegated admin outranks a co-resident local member from one resolved principal', function (): void {
-    $localMember = authorizationUser(false);
-    $actor = authorizationDelegatedActor(ConsoleRole::Member);
-
-    $this->actingAs($localMember)
-        ->withSession(authorizationDelegatedSession($actor, ConsoleRole::Admin));
-
-    $this->getJson('/_test/authorization/console-probe')
-        ->assertOk()
-        ->assertJsonPath('principal', $actor->getAuthIdentifier())
-        ->assertJsonPath('delegated', true)
-        ->assertJsonPath('role', ConsoleRole::Admin->value)
-        ->assertJsonPath('row_role', ConsoleRole::Member->value)
-        ->assertJsonPath('ability', true)
-        ->assertJsonPath('same_resolution', true)
-        ->assertJsonPath('local_session_user', $localMember->getKey());
-
-    $this->getJson('/_test/authorization/console-admin')->assertOk();
-});
-
-test('a present but non-acting delegated session cannot borrow local admin standing', function (): void {
-    $localAdmin = authorizationUser(true);
-    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
-
-    $this->actingAs($localAdmin)
-        ->withSession(authorizationDelegatedSession($actor, ConsoleRole::Admin));
-
-    $this->getJson('/_test/authorization/local-probe')
-        ->assertOk()
-        ->assertJsonPath('principal', $localAdmin->getKey())
-        ->assertJsonPath('delegated', false)
-        ->assertJsonPath('delegated_session_present', true)
-        ->assertJsonPath('refused', false)
-        ->assertJsonPath('ability', false);
-
-    $this->getJson('/_test/authorization/local-admin')->assertForbidden();
-});
-
-test('a refused delegated session is terminal and never falls back to a local admin', function (): void {
-    $localAdmin = authorizationUser(true);
-    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
-    $expiredSession = authorizationDelegatedSession(
-        $actor,
-        ConsoleRole::Admin,
-        CarbonImmutable::now()->subMinutes(121)->getTimestamp(),
-    );
-
-    $this->actingAs($localAdmin)->withSession($expiredSession);
-    $this->getJson('/_test/authorization/local-admin')->assertForbidden();
-
-    $this->actingAs($localAdmin)->withSession($expiredSession);
-    $this->getJson('/_test/authorization/local-probe')
-        ->assertOk()
-        ->assertJsonPath('principal', null)
-        ->assertJsonPath('delegated', false)
-        ->assertJsonPath('delegated_session_present', true)
-        ->assertJsonPath('refused', true)
-        ->assertJsonPath('ability', false);
-});
-
-test('delegated type-qualified identifiers fit the shipped invitation inviter column', function (): void {
-    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
-    $identifier = $actor->getAuthIdentifier();
-
-    $invitation = Invitation::invite(
-        'delegated-inviter@example.test',
-        3600,
-        invitedBy: $identifier,
-    );
-
-    expect($identifier)->toStartWith(DelegatedActor::IDENTIFIER_PREFIX)
-        ->and(Str::length($identifier))->toBeLessThanOrEqual(64)
-        ->and($invitation->refresh()->invited_by)->toBe($identifier);
-});
-
-test('the shipped invitations inviter column declares room for type-qualified delegated identifiers', function (): void {
-    $candidates = glob(base_path('vendor/artisan-build/built-for-cloud/database/migrations/*_generalize_invitations_table.php'));
-
-    expect($candidates)->not->toBeEmpty('The BfC invitations width migration is not locatable.');
-
-    $source = (string) file_get_contents((string) $candidates[0]);
-
-    preg_match("/string\('invited_by',\s*(\d+)\)/", $source, $width);
-
-    expect($width[1] ?? null)->not->toBeNull('The shipped migration no longer declares an invited_by width.')
-        ->and((int) $width[1])->toBeGreaterThanOrEqual(64);
-
-    $actor = authorizationDelegatedActor(ConsoleRole::Admin);
-    $identifier = $actor->getAuthIdentifier();
-
-    expect(Str::length($identifier))->toBeLessThanOrEqual((int) $width[1]);
-});
-
-function authorizationUser(bool $isAdmin): User
+function authorizationUser(UserRole|string $role): User
 {
-    $user = User::factory()->create();
-
-    if ($isAdmin) {
-        $user->forceFill(['is_admin' => true])->save();
-    }
+    $user = User::query()->create([
+        'name' => 'Authorization '.($role instanceof UserRole ? $role->value : $role),
+        'email' => 'authorization-'.($role instanceof UserRole ? $role->value : $role).'-'.Str::ulid().'@example.test',
+        'password' => Hash::make('test-created-password'),
+    ]);
+    $user->forceFill([
+        'role' => $role instanceof UserRole ? $role->value : $role,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
 
     return $user;
 }
 
-function authorizationDelegatedActor(ConsoleRole $rowRole): DelegatedActor
-{
-    $issuer = 'https://scalpels.test';
-    $subject = 'operator_'.Str::ulid();
-
-    return DelegatedActor::query()->create([
-        'identity_hash' => DelegatedActor::identityHash($issuer, $subject),
-        'issuer' => $issuer,
-        'subject' => $subject,
-        'last_handoff_display_name' => 'Delegated Operator',
-        'last_handoff_on_behalf_of' => null,
-        'last_handoff_role' => $rowRole,
-        'deactivated_at' => null,
-    ]);
-}
-
 /**
- * The exact state written by ConsoleGuard redemption, read through the real
- * package guard and provider. Direct seeding isolates post-handoff policy; it
- * does not prove assertion verification or the production entry route.
- *
- * @return array<string, mixed>
+ * @return array{message: Message, attachment: MessageAttachment, raw: string}
  */
-function authorizationDelegatedSession(
-    DelegatedActor $actor,
-    ConsoleRole $sessionRole,
-    ?int $issuedAt = null,
-): array {
-    $guard = Auth::guard(ConsoleGuardConfiguration::GUARD);
-
-    expect($guard)->toBeInstanceOf(ConsoleGuard::class);
-
-    /** @var ConsoleGuard $guard */
-    return [
-        $guard->getName() => $actor->getAuthIdentifier(),
-        ConsoleSession::ASSERTION_ISSUED_AT => $issuedAt ?? CarbonImmutable::now()->getTimestamp(),
-        ConsoleSession::DISPLAY_NAME => 'Delegated Operator',
-        ConsoleSession::ROLE => $sessionRole->value,
-        ConsoleSession::ON_BEHALF_OF => null,
-    ];
-}
-
-function authorizationMessage(): Message
+function authorizationMessage(string $app, string $subject): array
 {
-    return Message::query()->create([
+    $role = Str::afterLast($app, '-');
+    $raw = implode("\r\n", [
+        'From: sender@example.test',
+        'To: recipient@example.test',
+        'Subject: '.$subject,
+        'MIME-Version: 1.0',
+        'Content-Type: text/html; charset=UTF-8',
+        '',
+        '<html><body><p>Role body '.$role.'</p></body></html>',
+    ]);
+    $rawObjectKey = 'raw/authorization/'.Str::ulid().'.eml';
+    $message = Message::query()->create([
         'idempotency_key' => (string) Str::ulid(),
-        'app' => 'authorization-test',
+        'app' => $app,
         'stream' => null,
-        'subject' => 'Authorization test message',
+        'subject' => $subject,
         'from_address' => 'sender@example.test',
-        'from_name' => 'Sender',
-        'message_id' => '<authorization@example.test>',
+        'from_name' => 'Authorization Sender',
+        'message_id' => '<'.Str::ulid().'@example.test>',
         'sent_at' => now()->subMinute(),
         'received_at' => now(),
-        'size_bytes' => 1,
-        'attachment_count' => 0,
-        'link_count' => 0,
+        'size_bytes' => strlen($raw),
+        'attachment_count' => 1,
+        'link_count' => 1,
         'truncation' => 'none',
-        'raw_object_key' => 'raw/authorization.eml',
+        'raw_object_key' => $rawObjectKey,
         'parsed_at' => now(),
     ]);
+    $message->headers()->create(['name' => 'X-Authorization-Test', 'value' => $role]);
+    $message->links()->create(['url' => 'https://example.test/authorization', 'label' => 'Authorization']);
+    $attachment = $message->attachments()->create([
+        'filename' => 'authorization-'.$role.'.txt',
+        'mime' => 'text/plain',
+        'size_bytes' => strlen('attachment for '.$role),
+        'object_key' => 'attachments/authorization/'.Str::ulid().'.txt',
+    ]);
+
+    Storage::disk((string) config('sink-server.disk'))->put($rawObjectKey, $raw);
+    Storage::disk((string) config('sink-server.disk'))->put($attachment->object_key, 'attachment for '.$role);
+
+    return compact('message', 'attachment', 'raw');
 }

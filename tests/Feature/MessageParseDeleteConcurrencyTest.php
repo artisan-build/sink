@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
-use ArtisanBuild\BuiltForCloud\ApiToken;
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\Credential;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Truncation;
 use ArtisanBuild\SinkServer\Actions\CleanupMessageBlobs;
@@ -35,8 +37,8 @@ afterEach(function (): void {
             ->each(fn (Message $message): int => resolve(DeleteMessage::class)($message));
     }
 
-    if (Schema::hasTable((new ApiToken)->getTable())) {
-        ApiToken::query()->where('name', 'like', 'concurrency-harness-%')->delete();
+    if (Schema::hasTable((new Credential)->getTable())) {
+        Credential::query()->where('subject_ref', 'like', 'concurrency-harness-%')->delete();
     }
 
     if (DB::connection()->transactionLevel() === 0) {
@@ -237,7 +239,7 @@ test('two concurrent posts serialize immutable writes without orphaning the losi
     $token = "concurrency-harness-token-{$scenario}";
     $idempotencyKey = (string) Str::ulid();
     $rawBodies = [simpleConcurrentRaw('First concurrent body'), simpleConcurrentRaw('Second concurrent body')];
-    resolve(TokenRegistry::class)->store($appId, hash('sha256', $token));
+    createConcurrencyCredential($appId, $token);
 
     if ($existingRow) {
         $this->postJson('/ingest', concurrencyEnvelopePayload($idempotencyKey, simpleConcurrentRaw('Existing body')), [
@@ -327,7 +329,7 @@ test('two concurrent posts serialize immutable writes without orphaning the losi
     Storage::disk((string) config('sink-server.disk'))->assertMissing($firstObjectKey);
 
     expect(resolve(DeleteMessage::class)($message))->toBe(1)
-        ->and(ApiToken::query()->where('token_hash', hash('sha256', $token))->delete())->toBe(1)
+        ->and(Credential::query()->where('secret_hash', hash('sha256', $token))->delete())->toBe(1)
         ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 })->with([
     'absent-row initial ingest' => false,
@@ -342,7 +344,7 @@ test('cleanup cannot delete immutable bytes written by a concurrent reingest', f
     $idempotencyKey = (string) Str::ulid();
     $oldObjectKey = "raw/{$appId}/{$idempotencyKey}.eml";
     $newRaw = concurrencyMultipartMime();
-    resolve(TokenRegistry::class)->store($appId, hash('sha256', $token));
+    createConcurrencyCredential($appId, $token);
     Storage::disk((string) config('sink-server.disk'))->put($oldObjectKey, 'old raw');
     MessageBlobCleanupIntent::query()->create(['object_key' => $oldObjectKey]);
     [$cleanupParent, $cleanupChild] = concurrencySocketPair();
@@ -394,7 +396,7 @@ test('cleanup cannot delete immutable bytes written by a concurrent reingest', f
     Storage::disk((string) config('sink-server.disk'))->assertMissing($oldObjectKey);
 
     expect(resolve(DeleteMessage::class)($message))->toBe(1)
-        ->and(ApiToken::query()->where('token_hash', hash('sha256', $token))->delete())->toBe(1)
+        ->and(Credential::query()->where('secret_hash', hash('sha256', $token))->delete())->toBe(1)
         ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
 });
 
@@ -501,6 +503,18 @@ function createConcurrencyMessage(string $suffix): Message
     Storage::disk((string) config('sink-server.disk'))->put($rawObjectKey, concurrencyMultipartMime());
 
     return $message;
+}
+
+function createConcurrencyCredential(string $appId, string $secret): Credential
+{
+    return Credential::query()->create([
+        'kind' => CredentialKind::Bearer,
+        'purpose' => CredentialPurpose::Consumption,
+        'subject_type' => SubjectType::Installation,
+        'subject_ref' => $appId,
+        'name' => $appId,
+        'secret_hash' => hash('sha256', $secret),
+    ]);
 }
 
 /**

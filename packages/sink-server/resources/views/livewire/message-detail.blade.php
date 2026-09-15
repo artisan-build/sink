@@ -6,13 +6,11 @@
             <flux:text>{{ $message->from_name ? $message->from_name.' <'.$message->from_address.'>' : ($message->from_address ?: __('Unknown sender')) }}</flux:text>
         </div>
 
-        @can('administer-sink')
-            <form method="POST" action="{{ route('sink.message.destroy', $message) }}" onsubmit="return confirm('{{ __('Delete this message and its stored blobs?') }}')">
+        <form method="POST" action="{{ route('sink.message.destroy', $message) }}" onsubmit="return confirm('{{ __('Delete this message and its stored blobs?') }}')">
                 @csrf
                 @method('DELETE')
-                <flux:button type="submit" variant="danger" data-testid="message-admin-delete">{{ __('Delete message') }}</flux:button>
-            </form>
-        @endcan
+            <flux:button type="submit" variant="danger" data-testid="message-delete">{{ __('Delete message') }}</flux:button>
+        </form>
     </div>
 
     <flux:card>

@@ -1,4 +1,4 @@
-@extends('bfc::layout', ['title' => __('Dashboard')])
+@extends('layouts.app', ['title' => __('Dashboard')])
 
 @section('content')
     <div class="flex h-full w-full flex-1 flex-col gap-4 rounded-xl">

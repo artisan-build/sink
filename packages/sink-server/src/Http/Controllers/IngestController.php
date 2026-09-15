@@ -4,7 +4,11 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Http\Controllers;
 
-use ArtisanBuild\BuiltForCloud\TokenRegistry;
+use ArtisanBuild\BuiltForCloud\Auth\CredentialResolver;
+use ArtisanBuild\BuiltForCloud\CredentialKind;
+use ArtisanBuild\BuiltForCloud\CredentialPurpose;
+use ArtisanBuild\BuiltForCloud\CredentialUsageRecorder;
+use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\SinkContracts\Envelope;
 use ArtisanBuild\SinkContracts\Exceptions\InvalidEnvelope;
 use ArtisanBuild\SinkServer\Actions\QueueMessageBlobCleanup;
@@ -20,13 +24,21 @@ use JsonException;
 
 final class IngestController
 {
-    public function ingest(Request $request, TokenRegistry $tokens): JsonResponse
-    {
-        $appId = $tokens->resolve((string) $request->bearerToken());
+    public function ingest(
+        Request $request,
+        CredentialResolver $credentials,
+        CredentialUsageRecorder $usage,
+    ): JsonResponse {
+        $credential = $credentials->resolve(CredentialKind::Bearer, $request->bearerToken());
 
-        if ($appId === null) {
+        if ($credential?->purpose !== CredentialPurpose::Consumption
+            || $credential->subject_type !== SubjectType::Installation
+            || $credential->user_id !== null
+            || ! $usage->recordUsage($credential)) {
             return response()->json(['message' => 'Unauthorized.'], 401);
         }
+
+        $appId = $credential->subject_ref;
 
         try {
             $data = json_decode($request->getContent(), true, 512, JSON_THROW_ON_ERROR);

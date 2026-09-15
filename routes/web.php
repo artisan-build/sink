@@ -1,20 +1,7 @@
 <?php
 
-use App\Http\Middleware\AuthenticateConsoleOrLocal;
-use App\Livewire\Admin\Invitations;
-use App\Livewire\Auth\AcceptInvitation;
 use Illuminate\Support\Facades\Route;
 
-Route::view('/', 'welcome')->name('home');
-
-Route::livewire('register/{token}', AcceptInvitation::class)->name('register.invitation');
-
-Route::middleware([AuthenticateConsoleOrLocal::class, 'verified'])->group(function (): void {
+Route::middleware('bfc.auth')->group(function (): void {
     Route::view('dashboard', 'dashboard')->name('dashboard');
-
-    Route::livewire('admin/invitations', Invitations::class)
-        ->middleware('can:administer-sink')
-        ->name('invitations');
 });
-
-require __DIR__.'/settings.php';

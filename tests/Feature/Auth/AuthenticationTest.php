@@ -1,67 +1,93 @@
 <?php
 
-use App\Models\User;
-use Laravel\Fortify\Features;
+declare(strict_types=1);
 
-test('login screen can be rendered', function (): void {
-    $response = $this->get(route('login'));
+use ArtisanBuild\BuiltForCloud\StandaloneAccess;
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\BuiltForCloud\UserRole;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
-    $response->assertOk();
+test('package login screen can be rendered', function (): void {
+    $response = $this->get(route('bfc.login'))
+        ->assertOk()
+        ->assertSee('Sign in')
+        ->assertSee(route('bfc.password.request'), false);
+
+    assertTestMarker($response, 'login-form');
 });
 
-test('users can authenticate using the login screen', function (): void {
-    $user = User::factory()->create();
+test('package users can authenticate through the standalone login', function (): void {
+    $user = authenticationUser();
 
-    $response = $this->post(route('login.store'), [
+    $this->post(route('bfc.login.store'), [
         'email' => $user->email,
-        'password' => 'password',
-    ]);
+        'password' => 'test-created-password',
+    ])->assertSessionHasNoErrors()
+        ->assertRedirect(route('bfc.ui.home', absolute: false));
 
-    $response
-        ->assertSessionHasNoErrors()
-        ->assertRedirect(route('dashboard', absolute: false));
-
-    $this->assertAuthenticated();
+    $this->assertAuthenticatedAs($user);
+    expect(session(StandaloneAccess::SESSION_VERSION_KEY))->toBe($user->auth_session_version)
+        ->and($user->refresh()->last_authenticated_at)->not->toBeNull();
 });
 
-test('users can not authenticate with invalid password', function (): void {
-    $user = User::factory()->create();
+test('package users cannot authenticate with an invalid password', function (): void {
+    $user = authenticationUser();
 
-    $response = $this->post(route('login.store'), [
+    $this->from(route('bfc.login', absolute: false))
+        ->post(route('bfc.login.store'), [
+            'email' => $user->email,
+            'password' => 'wrong-password',
+        ])->assertRedirect(route('bfc.login', absolute: false))
+        ->assertSessionHasErrors(['email']);
+
+    $this->assertGuest();
+    expect(session()->has(StandaloneAccess::SESSION_VERSION_KEY))->toBeFalse();
+});
+
+test('inactive package users cannot authenticate', function (): void {
+    $user = authenticationUser();
+    $user->forceFill(['status' => 'inactive'])->save();
+
+    $this->post(route('bfc.login.store'), [
         'email' => $user->email,
-        'password' => 'wrong-password',
-    ]);
-
-    $response->assertSessionHasErrorsIn('email');
+        'password' => 'test-created-password',
+    ])->assertSessionHasErrors(['email']);
 
     $this->assertGuest();
 });
 
-test('users with two factor enabled are redirected to two factor challenge', function (): void {
-    $this->skipUnlessFortifyHas(Features::twoFactorAuthentication());
+test('package users can logout from a real versioned web session', function (): void {
+    $user = authenticationUser();
+    authenticationLogin($user);
 
-    Features::twoFactorAuthentication([
-        'confirm' => true,
-        'confirmPassword' => true,
+    $this->post(route('bfc.logout'))
+        ->assertRedirect(route('bfc.login'));
+
+    $this->assertGuest();
+    expect(session()->has(StandaloneAccess::SESSION_VERSION_KEY))->toBeFalse();
+});
+
+function authenticationUser(): User
+{
+    $user = User::query()->create([
+        'name' => 'Authentication User',
+        'email' => 'authentication-'.Str::ulid().'@example.test',
+        'password' => Hash::make('test-created-password'),
     ]);
+    $user->forceFill([
+        'role' => UserRole::Member->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
 
-    $user = User::factory()->withTwoFactor()->create();
+    return $user->refresh();
+}
 
-    $response = $this->post(route('login.store'), [
+function authenticationLogin(User $user): void
+{
+    test()->post(route('bfc.login.store'), [
         'email' => $user->email,
-        'password' => 'password',
-    ]);
-
-    $response->assertRedirect(route('two-factor.login'));
-    $this->assertGuest();
-});
-
-test('users can logout', function (): void {
-    $user = User::factory()->create();
-
-    $response = $this->actingAs($user)->post(route('logout'));
-
-    $response->assertRedirect(route('home'));
-
-    $this->assertGuest();
-});
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+}

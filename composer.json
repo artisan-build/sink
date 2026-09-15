@@ -14,10 +14,9 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
-        "artisan-build/built-for-cloud": "^0.6",
+        "artisan-build/built-for-cloud": "^0.11",
         "artisan-build/sink-server": "^1.0",
         "laravel/chisel": "^0.1.0",
-        "laravel/fortify": "^1.37.2",
         "laravel/framework": "^13.17",
         "laravel/tinker": "^3.0",
         "league/flysystem-aws-s3-v3": "^3.35",

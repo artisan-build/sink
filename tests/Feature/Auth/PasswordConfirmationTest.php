@@ -1,11 +1,15 @@
 <?php
 
-use App\Models\User;
+declare(strict_types=1);
 
-test('confirm password screen can be rendered', function (): void {
-    $user = User::factory()->create();
+use Illuminate\Support\Facades\Route;
 
-    $response = $this->actingAs($user)->get(route('password.confirm'));
+test('Sink does not expose reusable password confirmation', function (): void {
+    expect(Route::has('password.confirm'))->toBeFalse()
+        ->and(Route::has('password.confirm.store'))->toBeFalse();
 
-    $response->assertOk();
+    $this->get('/confirm-password')->assertNotFound();
+    $this->post('/user/confirm-password', [
+        'password' => 'test-created-password',
+    ])->assertNotFound();
 });
