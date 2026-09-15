@@ -42,5 +42,6 @@ grep -q -- '--purpose=mcp --name=' "$HARNESS_DIR/launch.sh" || fail 'MCP mint do
 if grep -Eq -- '--purpose=(consumption|mcp).*--abilities=' "$HARNESS_DIR/send-message.sh" "$HARNESS_DIR/launch.sh"; then
 	fail 'protocol purpose was incorrectly duplicated as an operator ability'
 fi
+grep -q "whereKey((int) \$messageKey)" "$HARNESS_DIR/send-message.php" || fail 'ingest proof does not follow the accepted message id'
 
 printf 'ok run-unique secrets, destructive-name guards, and supported credential docs\n'

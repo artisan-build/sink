@@ -33,7 +33,6 @@ if ($defaultDatabase !== $database || $sinkDatabase !== $database) {
     exit(2);
 }
 
-$sourceApp = (string) ($options['app'] ?? 'verify-source');
 $recipient = (string) ($options['recipient'] ?? 'recipient@verify.test');
 $subject = (string) ($options['subject'] ?? 'Verification message');
 $idempotencyKey = (string) Str::ulid();
@@ -82,11 +81,18 @@ if (! str_contains($statusLine, ' 202 ')) {
     exit(1);
 }
 
+$response = json_decode((string) $responseBody, true);
+$messageKey = is_array($response) ? ($response['id'] ?? null) : null;
+if (! is_int($messageKey) && ! (is_string($messageKey) && ctype_digit($messageKey))) {
+    fwrite(STDERR, "POST /ingest did not return a message id.\n");
+    exit(1);
+}
+
 $deadline = microtime(true) + 20;
 do {
     usleep(200000);
     $message = Message::query()
-        ->where('app', $sourceApp)
+        ->whereKey((int) $messageKey)
         ->where('idempotency_key', $idempotencyKey)
         ->first();
 } while (($message === null || $message->parsed_at === null) && microtime(true) < $deadline);
