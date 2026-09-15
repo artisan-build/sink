@@ -238,7 +238,7 @@ test('installation ingest and MCP credentials survive issuer departure and autho
     ], ['Authorization' => 'Bearer '.$issued[CredentialPurpose::Mcp->value]])->assertOk();
 
     foreach ($issued as $purpose => $secret) {
-        $credential = app(CredentialResolver::class)->resolve(CredentialKind::Bearer, $secret);
+        $credential = resolve(CredentialResolver::class)->resolve(CredentialKind::Bearer, $secret);
         expect($credential?->purpose->value)->toBe($purpose)
             ->and($credential?->user_id)->toBeNull()
             ->and($credential?->last_used_at)->not->toBeNull();

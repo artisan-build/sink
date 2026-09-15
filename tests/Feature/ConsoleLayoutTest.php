@@ -89,7 +89,7 @@ test('the package account surface exposes the configured lifecycle navigation by
     assertTestMarker($response, 'ui-nav-session-management');
     assertTestMarker($response, 'ui-nav-managed-transitions', present: $canManageAuthority);
     assertTestMarker($response, 'ui-nav-personal-credentials', present: false);
-    assertTestMarker($response, 'ui-nav-installation-credentials', present: false);
+    assertTestMarker($response, 'ui-nav-installation-credentials');
     assertTestMarker($response, 'ui-logout-form');
 })->with([
     'owner' => [UserRole::Owner, true, true],
