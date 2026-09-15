@@ -86,6 +86,10 @@ if docker inspect "$MINIO_CONTAINER" >/dev/null 2>&1; then
 else
 	ok "removed exact MinIO bucket $MINIO_BUCKET and container $MINIO_CONTAINER"
 fi
+for _ in $(seq 1 30); do
+	lsof -nP -iTCP:"$MINIO_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || break
+	sleep 0.1
+done
 if lsof -nP -iTCP:"$MINIO_PORT" -sTCP:LISTEN -t >/dev/null 2>&1; then
 	printf '\033[31mFAIL\033[0m  MinIO port %s still has a listener\n' "$MINIO_PORT"
 	failures=$((failures + 1))

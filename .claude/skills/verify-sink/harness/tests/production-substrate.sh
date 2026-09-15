@@ -47,5 +47,6 @@ grep -q "100 Continue" "$HARNESS_DIR/authority-stub.php" || fail 'managed author
 grep -q 'while (true)' "$HARNESS_DIR/authority-stub.php" || fail 'managed authority exits after an idle accept timeout'
 grep -q 'JSON_UNESCAPED_SLASHES' "$HARNESS_DIR/authority-stub.php" || fail 'managed authority evidence cannot be matched by Doctor'
 grep -q 'managed_login_status.*302' "$HARNESS_DIR/launch.sh" || fail 'HTTP authority mode is not checked before browser verification'
+grep -q 'sleep 0.1' "$HARNESS_DIR/cleanup.sh" || fail 'MinIO cleanup does not wait for Docker port release'
 
 printf 'ok run-unique secrets, destructive-name guards, and supported credential docs\n'
