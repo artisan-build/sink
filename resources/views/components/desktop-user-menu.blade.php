@@ -38,10 +38,10 @@
         </div>
         <flux:menu.separator />
         <flux:menu.radio.group>
-            <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate data-testid="desktop-user-menu-settings">
-                {{ __('Settings') }}
+            <flux:menu.item :href="route('bfc.ui.home')" icon="cog" wire:navigate data-testid="desktop-user-menu-account">
+                {{ __('Account') }}
             </flux:menu.item>
-            <form method="POST" action="{{ route('logout') }}" class="w-full">
+            <form method="POST" action="{{ route('bfc.ui.logout') }}" class="w-full">
                 @csrf
                 <flux:menu.item
                     as="button"

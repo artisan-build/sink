@@ -1,13 +1,8 @@
 @php
-    $name = $sinkActingPrincipal->delegated
-        ? $bfcConsoleChrome->operatorLabel()
-        : data_get($sinkActingPrincipal->principal, 'name');
-    $name = is_string($name) && $name !== '' ? $name : config('app.name', 'Laravel');
-    $email = $sinkActingPrincipal->delegated
-        ? null
-        : data_get($sinkActingPrincipal->principal, 'email');
-    $email = is_string($email) && $email !== '' ? $email : null;
-    $initials = \Illuminate\Support\Str::of($name)
+    $user = auth()->user();
+    $name = data_get($user, 'name', config('app.name', 'Sink'));
+    $email = data_get($user, 'email');
+    $initials = \Illuminate\Support\Str::of((string) $name)
         ->explode(' ')
         ->filter()
         ->take(2)
@@ -21,10 +16,6 @@
         @include('partials.head')
     </head>
     <body class="min-h-screen bg-white dark:bg-zinc-800">
-        @if ($bfcConsoleChrome->delegated)
-            @include('bfc::chrome', ['chrome' => $bfcConsoleChrome])
-        @endif
-
         @include('layouts.app.sidebar', [
             'name' => $name,
             'email' => $email,

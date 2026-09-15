@@ -1,5 +1,5 @@
 <?php
 
 return [
-    'component_layout' => 'bfc::layout',
+    'component_layout' => 'layouts.app',
 ];

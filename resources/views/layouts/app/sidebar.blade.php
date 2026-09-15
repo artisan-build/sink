@@ -14,13 +14,13 @@
             </flux:sidebar.item>
         </flux:sidebar.group>
 
-        @can('administer-sink')
+        @if (\ArtisanBuild\BuiltForCloud\RolePolicy::canManageMembers(data_get(auth()->user(), 'role')))
             <flux:sidebar.group :heading="__('Admin')" class="grid">
-                <flux:sidebar.item icon="users" :href="route('invitations')" :current="request()->routeIs('invitations')" wire:navigate data-testid="sidebar-invitations">
-                    {{ __('Invitations') }}
+                <flux:sidebar.item icon="users" :href="route('bfc.ui.home')" :current="request()->routeIs('bfc.*')" wire:navigate data-testid="sidebar-members">
+                    {{ __('Members') }}
                 </flux:sidebar.item>
             </flux:sidebar.group>
-        @endcan
+        @endif
     </flux:sidebar.nav>
 
     <flux:spacer />
@@ -35,9 +35,7 @@
         </flux:sidebar.item>
     </flux:sidebar.nav>
 
-    @unless ($sinkActingPrincipal->delegatedSessionPresent())
-        <x-desktop-user-menu class="hidden lg:block" :$name :$email :$initials />
-    @endunless
+    <x-desktop-user-menu class="hidden lg:block" :$name :$email :$initials />
 </flux:sidebar>
 
 <!-- Mobile User Menu -->
@@ -46,8 +44,7 @@
 
     <flux:spacer />
 
-    @unless ($sinkActingPrincipal->delegatedSessionPresent())
-        <flux:dropdown position="top" align="end" data-testid="mobile-user-menu">
+    <flux:dropdown position="top" align="end" data-testid="mobile-user-menu">
             <flux:profile
                 :$initials
                 icon-trailing="chevron-down"
@@ -75,14 +72,14 @@
                 <flux:menu.separator />
 
                 <flux:menu.radio.group>
-                    <flux:menu.item :href="route('profile.edit')" icon="cog" wire:navigate data-testid="mobile-user-menu-settings">
-                        {{ __('Settings') }}
+                    <flux:menu.item :href="route('bfc.ui.home')" icon="cog" wire:navigate data-testid="mobile-user-menu-account">
+                        {{ __('Account') }}
                     </flux:menu.item>
                 </flux:menu.radio.group>
 
                 <flux:menu.separator />
 
-                <form method="POST" action="{{ route('logout') }}" class="w-full">
+                <form method="POST" action="{{ route('bfc.ui.logout') }}" class="w-full">
                     @csrf
                     <flux:menu.item
                         as="button"
@@ -95,6 +92,5 @@
                     </flux:menu.item>
                 </form>
             </flux:menu>
-        </flux:dropdown>
-    @endunless
+    </flux:dropdown>
 </flux:header>
