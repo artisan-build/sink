@@ -149,6 +149,11 @@ for _ in $(seq 1 60); do
 done
 [ "$ready" -eq 1 ] || die "Server did not answer $BASE_URL/up. See $RUN_DIR/server.log."
 
+standalone_login_status="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/bfc/login" 2>/dev/null || true)"
+managed_login_status="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/bfc/managed/login?intended=/inbox" 2>/dev/null || true)"
+printf 'standalone_login=%s managed_login=%s\n' "$standalone_login_status" "$managed_login_status" > "$EVIDENCE_DIR/authority-http.log"
+[ "$standalone_login_status" = 404 ] && [ "$managed_login_status" = 302 ] || die "The serving process did not enforce the disposable managed authority."
+
 php_run artisan sink:maintain --no-interaction > "$EVIDENCE_DIR/scheduler.log" 2>&1 || die "The local scheduler maintenance probe failed."
 printf 'scheduler_process=alive maintenance_command=passed\n' >> "$EVIDENCE_DIR/scheduler.log"
 
