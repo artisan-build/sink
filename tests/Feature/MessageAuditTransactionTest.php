@@ -2,28 +2,24 @@
 
 declare(strict_types=1);
 
-use App\Models\User;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionActor;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleGuard;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleGuardConfiguration;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleRole;
-use ArtisanBuild\BuiltForCloud\Console\ConsoleSession;
-use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
+use ArtisanBuild\BuiltForCloud\User;
+use ArtisanBuild\BuiltForCloud\UserRole;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
-use Carbon\CarbonImmutable;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -39,13 +35,14 @@ test('Sink declares the exact bounded action vocabulary', function (): void {
         ]);
 });
 
-test('the real UI delete route records exactly one local-user event and ledger row', function (): void {
-    $admin = auditAdmin();
-    $message = createAuditMessage('local-delete', subject: 'Delete content must not enter audit');
-    $attachment = createAuditAttachment($message, 'attachments/local-delete.txt');
+test('the real UI delete route records exactly one package-user event and ledger row', function (UserRole $role): void {
+    $user = auditAttributionUser($role);
+    $message = createAuditMessage("{$role->value}-delete", subject: 'Delete content must not enter audit');
+    $attachment = createAuditAttachment($message, "attachments/{$role->value}-delete.txt");
+    auditAttributionLogin($user);
 
-    DB::transaction(function () use ($admin, $message, $attachment): void {
-        $this->actingAs($admin)
+    DB::transaction(function () use ($message, $attachment): void {
+        $this
             ->delete(route('sink.message.destroy', $message))
             ->assertRedirect(route('sink.inbox'));
 
@@ -65,7 +62,7 @@ test('the real UI delete route records exactly one local-user event and ledger r
         'action_vocabulary' => SinkAction::class,
         'reason' => AppActionReason::Requested->value,
         'actor_type' => 'local_user',
-        'actor_ref' => (string) $admin->getAuthIdentifier(),
+        'actor_ref' => (string) $user->getAuthIdentifier(),
         'on_behalf_of' => null,
     ])->and($ledger->event_id)->toBe($event->id)
         ->and($ledger->dedup_key)->toBe(AppActionRecorder::dedupKeyFor(
@@ -79,17 +76,22 @@ test('the real UI delete route records exactly one local-user event and ledger r
     Storage::disk((string) config('sink-server.disk'))->assertMissing($message->raw_object_key);
     Storage::disk((string) config('sink-server.disk'))->assertMissing($attachment->object_key);
     expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
-});
+})->with([
+    'owner' => [UserRole::Owner],
+    'admin' => [UserRole::Admin],
+    'member' => [UserRole::Member],
+]);
 
-test('the real UI purge route records one delegated event for the whole purge', function (): void {
-    $actor = auditDelegatedActor();
+test('the real UI purge route records one package-user event for the whole purge', function (UserRole $role): void {
+    $user = auditAttributionUser($role);
+    $app = "audit-purge-{$role->value}";
     $messages = [
-        createAuditMessage('delegated-purge-one', appName: 'audit-purge', subject: 'First private subject'),
-        createAuditMessage('delegated-purge-two', appName: 'audit-purge', subject: 'Second private subject'),
+        createAuditMessage("{$role->value}-purge-one", appName: $app, subject: 'First private subject'),
+        createAuditMessage("{$role->value}-purge-two", appName: $app, subject: 'Second private subject'),
     ];
+    auditAttributionLogin($user);
 
-    $this->withSession(auditDelegatedSession($actor, 'Audit Agency'))
-        ->delete(route('sink.inbox.purge'), ['app' => 'audit-purge'])
+    $this->delete(route('sink.inbox.purge'), ['app' => $app])
         ->assertRedirect(route('sink.inbox'));
 
     $event = AppActionEvent::query()->sole();
@@ -101,9 +103,9 @@ test('the real UI purge route records one delegated event for the whole purge', 
             'action' => 'messages_purged',
             'action_vocabulary' => SinkAction::class,
             'reason' => AppActionReason::Requested->value,
-            'actor_type' => 'delegated_actor',
-            'actor_ref' => $actor->getAuthIdentifier(),
-            'on_behalf_of' => 'Audit Agency',
+            'actor_type' => 'local_user',
+            'actor_ref' => (string) $user->getAuthIdentifier(),
+            'on_behalf_of' => null,
         ])->and($ledger->event_id)->toBe($event->id)
         ->and($ledger->dedup_key)->toBe(AppActionRecorder::dedupKeyFor(
             SinkAction::MessagesPurged,
@@ -112,52 +114,64 @@ test('the real UI purge route records one delegated event for the whole purge', 
 
     $rows = json_encode([$event->getAttributes(), $ledger->getAttributes()], JSON_THROW_ON_ERROR);
 
-    expect($rows)->not->toContain('audit-purge')
+    expect($rows)->not->toContain($app)
         ->not->toContain('First private subject')
         ->not->toContain('Second private subject')
-        ->not->toContain('delegated-purge-one')
-        ->not->toContain('delegated-purge-two');
-});
+        ->not->toContain("{$role->value}-purge-one")
+        ->not->toContain("{$role->value}-purge-two");
+})->with([
+    'owner' => [UserRole::Owner],
+    'admin' => [UserRole::Admin],
+    'member' => [UserRole::Member],
+]);
 
-test('a co-resident local session never out-attributes the delegated acting principal on destructive routes', function (): void {
-    $admin = auditAdmin();
-    $actor = auditDelegatedActor();
-    createAuditMessage('coresident-purge-one', appName: 'audit-purge');
-    createAuditMessage('coresident-purge-two', appName: 'audit-purge');
+test('a changed web identity never reattributes a destructive action after principal resolution', function (): void {
+    $initiatingUser = auditAttributionUser(UserRole::Owner);
+    $wrongUser = auditAttributionUser(UserRole::Member);
+    $message = createAuditMessage('identity-switch-delete');
+    $identitySwitched = false;
+    auditAttributionLogin($initiatingUser);
 
-    $this->withSession([
-        Auth::guard('web')->getName() => $admin->getAuthIdentifier(),
-        ...auditDelegatedSession($actor, 'Co-resident Agency'),
-    ])
-        ->delete(route('sink.inbox.purge'), ['app' => 'audit-purge'])
+    DB::listen(function (QueryExecuted $query) use ($message, $wrongUser, &$identitySwitched): void {
+        if ($identitySwitched
+            || ! str_starts_with(strtolower(ltrim($query->sql)), 'delete')
+            || ! str_contains($query->sql, (new Message)->getTable())
+            || ! in_array((string) $message->getKey(), array_map(strval(...), $query->bindings), true)) {
+            return;
+        }
+
+        $identitySwitched = true;
+        Auth::guard('web')->setUser($wrongUser);
+    });
+
+    $this->delete(route('sink.message.destroy', $message))
         ->assertRedirect(route('sink.inbox'));
 
     $event = AppActionEvent::query()->sole();
 
-    expect(Message::query()->where('app', 'audit-purge')->count())->toBe(0)
+    expect($identitySwitched)->toBeTrue()
+        ->and(Message::query()->whereKey($message->getKey())->exists())->toBeFalse()
         ->and($event->getAttributes())->toMatchArray([
-            'action' => 'messages_purged',
+            'action' => 'message_deleted',
             'action_vocabulary' => SinkAction::class,
             'reason' => AppActionReason::Requested->value,
-            'actor_type' => 'delegated_actor',
-            'actor_ref' => $actor->getAuthIdentifier(),
-            'on_behalf_of' => 'Co-resident Agency',
-        ]);
+            'actor_type' => 'local_user',
+            'actor_ref' => (string) $initiatingUser->getAuthIdentifier(),
+            'on_behalf_of' => null,
+        ])->and($event->actor_ref)->not->toBe((string) $wrongUser->getAuthIdentifier());
 });
 
 test('UI purge refusal and destructive no-ops emit no successful action event', function (): void {
-    $admin = auditAdmin();
+    $admin = auditAttributionUser(UserRole::Admin);
+    auditAttributionLogin($admin);
 
-    $this->actingAs($admin)
-        ->delete(route('sink.inbox.purge'))
+    $this->delete(route('sink.inbox.purge'))
         ->assertUnprocessable();
 
-    $this->actingAs($admin)
-        ->delete(route('sink.inbox.purge'), ['app' => 'no-matching-messages'])
+    $this->delete(route('sink.inbox.purge'), ['app' => 'no-matching-messages'])
         ->assertRedirect(route('sink.inbox'));
 
-    $this->actingAs($admin)
-        ->delete(route('sink.message.destroy', PHP_INT_MAX))
+    $this->delete(route('sink.message.destroy', PHP_INT_MAX))
         ->assertNotFound();
 
     expect(AppActionEvent::query()->count())->toBe(0)
@@ -167,9 +181,10 @@ test('UI purge refusal and destructive no-ops emit no successful action event', 
 test('a forced recorder failure retains the UI message row and blobs on the shared connection', function (): void {
     expect(enum_exists(SinkAction::class))->toBeTrue();
 
-    $admin = auditAdmin();
+    $admin = auditAttributionUser(UserRole::Admin);
     $message = createAuditMessage('recorder-failure', rawObjectKey: 'raw/recorder-failure.eml');
     $attachment = createAuditAttachment($message, 'attachments/recorder-failure.txt');
+    auditAttributionLogin($admin);
 
     DB::transaction(function () use ($admin, $message): void {
         resolve(AppActionRecorder::class)->record(
@@ -182,7 +197,7 @@ test('a forced recorder failure retains the UI message row and blobs on the shar
 
     $this->withoutExceptionHandling();
 
-    expect(fn () => $this->actingAs($admin)->delete(route('sink.message.destroy', $message)))
+    expect(fn () => $this->delete(route('sink.message.destroy', $message)))
         ->toThrow(QueryException::class);
 
     expect((new Message)->getConnection())->toBe(DB::connection())
@@ -197,10 +212,11 @@ test('a forced recorder failure retains the UI message row and blobs on the shar
 });
 
 test('a stale route-bound delete returns zero and emits no successful action event', function (): void {
-    $admin = auditAdmin();
+    $admin = auditAttributionUser(UserRole::Admin);
     $message = createAuditMessage('stale-route-delete');
     $attachment = createAuditAttachment($message, 'attachments/stale-route-delete.txt');
     $competingDeleteCount = null;
+    auditAttributionLogin($admin);
 
     DB::listen(function (QueryExecuted $query) use ($message, &$competingDeleteCount): void {
         if ($competingDeleteCount !== null
@@ -214,8 +230,7 @@ test('a stale route-bound delete returns zero and emits no successful action eve
         $competingDeleteCount = Message::query()->whereKey($message->getKey())->delete();
     });
 
-    $this->actingAs($admin)
-        ->delete(route('sink.message.destroy', $message))
+    $this->delete(route('sink.message.destroy', $message))
         ->assertRedirect(route('sink.inbox'));
 
     expect($competingDeleteCount)->toBe(1)
@@ -229,12 +244,13 @@ test('a stale route-bound delete returns zero and emits no successful action eve
 });
 
 test('failed immediate blob cleanup remains durable until the scheduled retry succeeds', function (string $failure): void {
-    $admin = auditAdmin();
+    $admin = auditAttributionUser(UserRole::Admin);
     $message = createAuditMessage("cleanup-{$failure}");
     $attachment = createAuditAttachment($message, "attachments/cleanup-{$failure}.txt");
     $filesystemManager = Storage::getFacadeRoot();
     $failingDisk = Mockery::mock(FilesystemAdapter::class);
     $deletion = $failingDisk->shouldReceive('delete')->twice();
+    auditAttributionLogin($admin);
 
     if ($failure === 'false') {
         $deletion->andReturnFalse();
@@ -245,8 +261,7 @@ test('failed immediate blob cleanup remains durable until the scheduled retry su
     Storage::shouldReceive('disk')->andReturn($failingDisk);
 
     try {
-        $this->actingAs($admin)
-            ->delete(route('sink.message.destroy', $message))
+        $this->delete(route('sink.message.destroy', $message))
             ->assertRedirect(route('sink.inbox'));
     } finally {
         Storage::swap($filesystemManager);
@@ -299,7 +314,7 @@ test('message and audit writes share rollback and commit boundaries', function (
         ->and((new Message)->getConnection())->toBe(DB::connection())
         ->and((new Message)->getConnection()->getPdo())->toBe(DB::connection()->getPdo());
 
-    $actor = AppActionActor::localUser(User::factory()->create());
+    $actor = AppActionActor::localUser(auditAttributionUser(UserRole::Member));
 
     try {
         DB::transaction(function () use ($actor): void {
@@ -336,47 +351,28 @@ test('message and audit writes share rollback and commit boundaries', function (
         ->and(AppActionOutboxEntry::query()->count())->toBe(1);
 });
 
-function auditAdmin(): User
+function auditAttributionUser(UserRole $role): User
 {
-    $admin = User::factory()->create();
-    $admin->forceFill(['is_admin' => true])->save();
-
-    return $admin;
-}
-
-function auditDelegatedActor(): DelegatedActor
-{
-    $issuer = 'https://scalpels.audit.test';
-    $subject = 'audit_operator_'.Str::ulid();
-
-    return DelegatedActor::query()->create([
-        'identity_hash' => DelegatedActor::identityHash($issuer, $subject),
-        'issuer' => $issuer,
-        'subject' => $subject,
-        'last_handoff_display_name' => 'Audit Operator',
-        'last_handoff_on_behalf_of' => 'Stale row agency',
-        'last_handoff_role' => ConsoleRole::Member,
-        'deactivated_at' => null,
+    $user = User::query()->create([
+        'name' => 'Audit '.ucfirst($role->value),
+        'email' => "audit-{$role->value}-".Str::ulid().'@example.test',
+        'password' => Hash::make('test-created-password'),
     ]);
+    $user->forceFill([
+        'role' => $role->value,
+        'status' => 'active',
+        'email_verified_at' => now(),
+    ])->save();
+
+    return $user;
 }
 
-/**
- * @return array<string, mixed>
- */
-function auditDelegatedSession(DelegatedActor $actor, string $onBehalfOf): array
+function auditAttributionLogin(User $user): void
 {
-    $guard = Auth::guard(ConsoleGuardConfiguration::GUARD);
-
-    expect($guard)->toBeInstanceOf(ConsoleGuard::class);
-
-    /** @var ConsoleGuard $guard */
-    return [
-        $guard->getName() => $actor->getAuthIdentifier(),
-        ConsoleSession::ASSERTION_ISSUED_AT => CarbonImmutable::now()->getTimestamp(),
-        ConsoleSession::DISPLAY_NAME => 'Audit Operator',
-        ConsoleSession::ROLE => ConsoleRole::Admin->value,
-        ConsoleSession::ON_BEHALF_OF => $onBehalfOf,
-    ];
+    test()->post(route('bfc.login.store'), [
+        'email' => $user->email,
+        'password' => 'test-created-password',
+    ])->assertRedirect(route('bfc.ui.home', absolute: false));
 }
 
 function createAuditMessage(
