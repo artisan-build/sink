@@ -149,10 +149,12 @@ for _ in $(seq 1 60); do
 done
 [ "$ready" -eq 1 ] || die "Server did not answer $BASE_URL/up. See $RUN_DIR/server.log."
 
-php_run artisan sink:maintain --no-interaction > "$EVIDENCE_DIR/scheduler.log" 2>&1
+php_run artisan sink:maintain --no-interaction > "$EVIDENCE_DIR/scheduler.log" 2>&1 || die "The local scheduler maintenance probe failed."
 printf 'scheduler_process=alive maintenance_command=passed\n' >> "$EVIDENCE_DIR/scheduler.log"
 
-mint_output="$(php_run artisan bfc:credential:mint installation sink-verify-installation --kind=bearer --purpose=sink.mcp --abilities=mcp --name=verify-mcp --local --no-interaction)"
+if ! mint_output="$(php_run artisan bfc:credential:mint installation sink-verify-installation --kind=bearer --purpose=sink.mcp --abilities=mcp --name=verify-mcp --local --no-interaction)"; then
+	die "The local MCP credential mint failed."
+fi
 mcp_credential="${mint_output##*shown once: }"
 [ -n "$mcp_credential" ] || die "Could not mint disposable MCP credential."
 printf 'command=bfc:credential:mint purpose=sink.mcp capability=mcp local=yes verdict=passed\n' >> "$EVIDENCE_DIR/artisan.log"
