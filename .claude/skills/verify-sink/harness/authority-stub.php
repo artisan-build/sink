@@ -21,7 +21,7 @@ if ($server === false) {
 }
 
 $record = static function (string $path, string $verdict) use ($evidence): void {
-    file_put_contents($evidence, json_encode(['path' => $path, 'verdict' => $verdict], JSON_THROW_ON_ERROR).PHP_EOL, FILE_APPEND);
+    file_put_contents($evidence, json_encode(['path' => $path, 'verdict' => $verdict], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES).PHP_EOL, FILE_APPEND);
 };
 $json = static fn (array $payload): string => json_encode($payload, JSON_THROW_ON_ERROR);
 $binding = static fn (): array => [

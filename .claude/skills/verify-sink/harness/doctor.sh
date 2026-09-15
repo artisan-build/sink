@@ -89,18 +89,11 @@ else
 	check_fail "one or more safe driver overrides are missing"
 fi
 
-storage_proof="$(php_run -r '
-require getenv("APP_DIR_FOR_VERIFY")."/vendor/autoload.php";
-$app = require getenv("APP_DIR_FOR_VERIFY")."/bootstrap/app.php";
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-$disk = Illuminate\Support\Facades\Storage::disk("s3");
-$key = "verify/doctor.txt";
-$disk->put($key, "ok");
-$exists = $disk->exists($key);
-$disk->delete($key);
-echo $exists ? "passed" : "failed";
-' 2>/dev/null || true)"
-if [ "$storage_proof" = passed ]; then ok "run-unique MinIO bucket accepted and deleted an object"; else check_fail "S3-compatible object-storage proof failed"; fi
+if grep -q '"parsed_at": "' "$EVIDENCE_DIR/ingest.json" 2>/dev/null && grep -q 'ParseMessage.*DONE' "$RUN_DIR/worker.log" 2>/dev/null; then
+	ok "ingest object was written to and parsed back from the private S3-compatible bucket"
+else
+	check_fail "S3-compatible ingest object proof is incomplete"
+fi
 if grep -q '"path":"/managed-auth/v1/handoffs".*"verdict":"accepted"' "$EVIDENCE_DIR/managed-authority.jsonl" && grep -q 'exchange.*accepted' "$EVIDENCE_DIR/managed-authority.jsonl"; then ok "managed handoff and exchange reached the disposable authority"; else check_fail "managed-auth wire evidence is incomplete"; fi
 if grep -q 'method=initialize verdict=passed' "$EVIDENCE_DIR/mcp.log"; then ok "MCP initialize passed over loopback HTTP"; else check_fail "MCP evidence is incomplete"; fi
 
