@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e166667da0bc3ef4904dd88cc9d9eca7",
+    "content-hash": "cc0a70717809487302043f9368a422b2",
     "packages": [
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.10.0",
+            "version": "v0.11.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "1422bf531e902e3d82609fbc1afa03f6552ace75"
+                "reference": "c8fad6efb072b59a806e7dc2b91ee3f89fb228f2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/1422bf531e902e3d82609fbc1afa03f6552ace75",
-                "reference": "1422bf531e902e3d82609fbc1afa03f6552ace75",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/c8fad6efb072b59a806e7dc2b91ee3f89fb228f2",
+                "reference": "c8fad6efb072b59a806e7dc2b91ee3f89fb228f2",
                 "shasum": ""
             },
             "require": {
@@ -71,9 +71,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.10.0"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.11.0"
             },
-            "time": "2026-09-15T05:30:02+00:00"
+            "time": "2026-09-15T07:38:04+00:00"
         },
         {
             "name": "artisan-build/sink-contracts",
@@ -134,10 +134,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/sink-server",
-                "reference": "6264ef473aeaa4a89430aea215494944ab3c79c3"
+                "reference": "a27fafdac5d73ea1184780ecd39e18dd3320fb51"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.10",
+                "artisan-build/built-for-cloud": "^0.11",
                 "artisan-build/sink-contracts": "^1.0",
                 "illuminate/bus": "^13.17",
                 "illuminate/contracts": "^13.17",
