@@ -1,274 +1,206 @@
-# Sink
+<p align="center">
+  <img src="art/icon.png" width="128" alt="sink icon">
+</p>
 
-**Self-hosted, unmetered staging/test mail capture for Laravel, on Laravel Cloud.**
+<h1 align="center">Sink</h1>
 
-Sink is a mail trap you fork and deploy to your own Laravel Cloud account. Drop the
-client into any Laravel app, set `MAIL_MAILER=sink`, and every outbound message is
-captured to a self-hosted inbox instead of being delivered. Humans can inspect the
-mail in a web UI; coding agents can assert on metadata and body-match booleans over
-[MCP](https://modelcontextprotocol.io).
+Sink is a self-hosted mail catcher for Laravel staging, integration, and end-to-end tests. It replaces a hosted test inbox with an HTTP mail transport, a shared web inbox, and body-blind MCP tools on infrastructure you control.
 
-> **One mailer in, nothing out.** No metering, no per-message bill, no third-party
-> inbox holding your staging mail.
+Sink captures messages instead of delivering them. It is not an SMTP server, a production mail service, or a replacement for `Mail::fake()` in unit tests.
 
-Sink is capture-only by design. It is not an SMTP server, not a forwarding relay,
-and not a replacement for `Mail::fake()` in unit tests.
+## The easy way: Scalpels
 
----
+[Scalpels](https://scalpels.app/products/sink) can provision and manage Sink for you. Use it when you want the inbox without operating its Laravel Cloud resources yourself.
 
-## Why Sink exists
+The rest of this guide is for contributors and teams that want to run their own installation.
 
-Local mail catchers like Mailpit are excellent for one developer's laptop, but they
-are ephemeral and local. Hosted sandboxes like Mailtrap are polished, but they add
-another vendor, metering, and another inbox holding your data.
+## What Sink includes
 
-Sink is a free, self-hosted **floor**: a persistent, shared, agent-queryable
-staging/test inbox running on infrastructure you control. Storage and Cloud
-resources are your only costs.
+- A `sink` Laravel mail transport that posts raw MIME messages to `POST /ingest`.
+- A signed-in inbox at `/inbox` with metadata, rendered mail, headers, links, raw source, and attachments.
+- An HTTP MCP server at `/mcp` by default. Its tools expose metadata and boolean body matches, never body text.
+- An hourly `sink:maintain` task that applies the retention and storage limits.
+- Separate, purpose-limited credentials for message ingest and MCP access.
 
-**Positioning.** Mailpit is the right tool for a single developer's local loop, and
-Mailtrap is the full hosted product with deliverability scoring and broad team
-features. Sink is the floor for Laravel teams that want a persistent shared staging
-trap in their own Cloud account, with a coding agent as a first-class consumer.
-Outgrow it -> **Mailtrap is the upgrade.** Sink is MIT licensed.
+A **credential purpose** is the single protocol a credential may use. Sink maps `sink.ingest` to the `consumption` purpose and `sink.mcp` to the `mcp` purpose. Do not reuse one credential for both.
 
-## Support posture
+## Run it locally
 
-Sink is written for how [Artisan Build](https://artisan.build) uses it. Bugs get
-fixed. Feature requests are a fork away. Client-specific features are **not**
-backfilled into the OSS release. If you need the full hosted product, that is what
-Mailtrap is for.
+### Prerequisites
 
----
+- PHP 8.3 or newer, on a 64-bit build with `ext-gmp` and SQLite support.
+- Composer.
+- Git.
 
-## Architecture
+Node, npm, and Vite are not required. The frontend assets are already built.
 
-```
-  Source app  (MAIL_MAILER=sink)
-    └─ sink-client transport
-         serialize Symfony message → raw MIME
-         mint idempotency ULID + thin envelope
-         POST /ingest  (Bearer SINK_TOKEN, retry + backoff, cold-start tolerant)
-         capture-only · production fuse · fail-loud on exhaustion
-              │
-              ▼
-  Sink app  (one isolated Laravel Cloud environment per client)
-    /ingest → token auth → envelope-version check (4xx if sender is ahead)
-            → upsert by idempotency key → raw MIME to object storage → enqueue
-              │
-              ▼
-    Redis managed queue  (autoscale on depth, scale to zero)
-              │
-              ▼
-    Parse worker → extract subject / from / to·cc·bcc / headers / links /
-                   attachment metadata / sizes → Postgres (metadata)
-                   raw MIME + attachment bytes → object storage
-              │
-      ┌───────┴───────────────────────────────┐
-      ▼                                        ▼
-  Human inbox UI                          MCP server  (Bearer)
-  invitation-only                         body-blind assertion tools
-  sandboxed HTML render                   ◄── coding agent / CI
-  headers · links · raw · attachments
-              │
-              ▼
-    Scheduled  sink:maintain → sink:prune
-    (retention 7d default + max-messages + max-total-bytes; bucket lifecycle backstop)
-```
+From a fresh checkout, run these steps in order:
 
-- **One isolated environment per client** on Laravel Cloud: its own web instance,
-  Postgres database, Redis, object-storage bucket, managed queue, and scheduler.
-- **Unlimited source apps per environment.** Source apps are tagged by the bearer
-  token that sent them, giving Sink its `app` dimension.
-- **Cross-boundary transport is HTTP, not shared Redis.** Source apps are separate
-  deployments; `POST /ingest` is the boundary.
+1. Install the exact locked dependencies.
 
----
+   ```shell
+   composer install --no-interaction
+   ```
 
-## Repository layout
+   Composer should finish package discovery without errors.
 
-This is a **monorepo**. Three packages are developed here under `packages/`, each
-split read-only to its own repository and published to Packagist:
+2. Create the local environment file.
 
-| Package | Repo | Installed in | Role |
-| --- | --- | --- | --- |
-| [`artisan-build/sink-contracts`](https://github.com/artisan-build/sink-contracts) | read-only split | both packages | The versioned wire envelope. The single place compatibility lives. |
-| [`artisan-build/sink-client`](https://github.com/artisan-build/sink-client) | read-only split | source Laravel apps | The send side: the `sink` mail transport, activation guards, retry/backoff, idempotency key, `sink:install`, and `sink:update`. |
-| [`artisan-build/sink-server`](https://github.com/artisan-build/sink-server) | read-only split | the Sink app | The receive side: ingest, parse, object storage, prune, the human inbox UI, and the MCP server. |
+   ```shell
+   cp .env.example .env
+   php artisan key:generate
+   ```
 
-The **Sink app** at this repository's root is a slim Laravel shell: auth, token
-handout, and wiring `sink-server`. It stays thin so Sink-specific business logic
-does not drift out of the packages.
+   If you are using a Git worktree, copy the primary checkout's `.env` instead of replacing it from `.env.example`. `key:generate` should report that the application key was set.
 
-### Contributing
+3. Create the SQLite database and run the migrations.
 
-Issues and PRs are **disabled** on the three split repos, matching Laravel's own
-read-only split model. All development happens here in the monorepo. See
-[`SECURITY.md`](SECURITY.md) for private vulnerability disclosure; Sink sits on an
-untrusted ingest path.
+   ```shell
+   touch database/database.sqlite
+   php artisan migrate --graceful
+   ```
 
----
+   The migration should complete without failures. This local setup uses SQLite; production uses the database attached by Laravel Cloud.
 
-## Compatibility & versioning
+4. Run the test suite.
 
-Across N independently-deployed senders and one self-hosted receiver, **version
-skew is the normal state, not an error.** The wire protocol is built to tolerate
-it:
+   ```shell
+   composer test
+   ```
 
-- **Versioned envelope.** Every payload carries `envelope_version`. The envelope
-  evolves **additively within a major**: new optional fields only, never remove or
-  repurpose an existing field.
-- **Backward-compatible server.** A newer `sink-server` parses every older envelope
-  major it supports.
-- **Loud failure on the dangerous case.** Ingest returns a clear **4xx** when a
-  sender uses an envelope newer than the server understands: update the Sink app
-  first.
-- **Opaque message payload.** Only the thin Sink envelope is version-sensitive; the
-  message is base64-encoded raw RFC-822 MIME and interpreted server-side.
-- **Canonical upgrade order: update the Sink server first, then bump clients.** A
-  backward-compatible server safely runs ahead of its senders; the hazard is a
-  sender getting ahead of the server.
-- **Reserved stream field.** `stream` is present but nullable in v1. It is reserved
-  for future per-run isolation; v1 usage is app and time-window scoped.
+   Pint and Pest should both pass. The test suite uses isolated in-memory SQLite, array cache and sessions, and a synchronous queue.
 
----
+5. Start the local web server when you want to use the browser UI.
 
-## Releasing
+   ```shell
+   composer run dev
+   ```
 
-Releases are lockstep `v*` tags from this monorepo. A release tag drives
-`php artisan kibble:split`, which splits `sink-contracts`, `sink-client`, and
-`sink-server` to their read-only mirrors and publishes the packages. Keep
-inter-package constraints on the same major.
+   Open the URL printed by Artisan. Before signing in for the first time, create the local Owner in a second terminal:
 
----
+   ```shell
+   php artisan create-admin --local
+   ```
 
-## Deploying on Laravel Cloud
+   The command prompts for a name, email, and password. `--local` is important: it guarantees that the command writes to this checkout's database instead of a Laravel Cloud environment.
 
-Run one isolated Laravel Cloud environment per client: the Sink app, one Postgres
-database, Redis, one object-storage bucket, a web instance, a managed queue, and
-the scheduler. The scheduler runs `sink:maintain`, which runs `sink:prune`; Redis
-workers drain parse jobs.
+## Deploy it yourself on Laravel Cloud
 
-> **Using a coding agent? Let the skill do it.** This repo ships a
-> [`provisioning-sink-on-cloud`](.claude/skills/provisioning-sink-on-cloud/SKILL.md)
-> skill that provisions Postgres, Redis, object storage, web, queue, and scheduler;
-> wires Sink configuration; deploys; migrates; runs `create-admin`; and issues the
-> first installation-owned source-app credential.
+These steps create a single Sink installation. One installation can receive mail from many Laravel apps.
 
-Required production environment:
+1. Fork this repository and connect the fork to a Laravel Cloud application. Use the interactive `cloud ship` bootstrap for a new application, or bind an existing application with `cloud repo:config`.
+2. Provision and attach PostgreSQL, a private object-storage bucket, and a managed queue. Enable the scheduler on the web instance. Do not create a manually scaled background worker for the queue.
+3. Let Cloud inject every setting for those resources. **Never set environment variables for a database, cache, queue, or bucket that Cloud provisions.** Cloud injects the credentials and connection selectors such as `DB_CONNECTION`, `QUEUE_CONNECTION`, `CACHE_STORE`, `FILESYSTEM_DISK`, `DB_*`, `REDIS_*`, `SQS_*`, and `AWS_*`. Setting your own value shadows the injected value and breaks the resource.
+4. Set only app-specific values that Cloud does not inject, such as `APP_NAME`, `APP_URL`, `APP_ENV=production`, `APP_DEBUG=false`, and any Sink retention limits you want to change. Let Cloud preserve or generate `APP_KEY`.
+5. Deploy, run `php artisan migrate --force` in the Cloud environment, and verify that the database connects, the private disk can write and read, queued parse jobs drain, and the scheduler lists `sink:maintain` hourly.
+6. From your local checkout, create the first Owner in the intended Cloud environment:
 
-- `DB_CONNECTION=pgsql` plus normal `DB_*` values.
-- Optional `SINK_DB_*` values when the Sink metadata connection should differ from
-  the default database; otherwise the `sink` connection mirrors the app default.
-- Object-storage credentials and `SINK_DISK` for raw MIME and attachment bytes.
-- `QUEUE_CONNECTION=redis` and `SINK_QUEUE_CONNECTION=redis` for parse jobs.
-- `SINK_RETENTION_DAYS`, default `7`, plus optional `SINK_MAX_MESSAGES` and
-  `SINK_MAX_TOTAL_BYTES` caps.
-- `SINK_MCP_PATH`, default `/mcp`.
-- App auth secrets and bearer tokens managed by `artisan-build/built-for-cloud`.
+   ```shell
+   php artisan create-admin --environment=production
+   ```
 
-Do not enable a Cloud-managed mail integration for the Sink app. Sink is the inbox.
+   Replace `production` with the intended Cloud environment name. This command intentionally reaches Laravel Cloud when `--environment` is present. It prompts locally and sends a password hash to the selected environment. Use `--local` instead only when you mean the current machine.
+7. Sign in and open **Installation credentials**. Create one Bearer credential for `sink.ingest` for each source app. Create a separate Bearer credential for `sink.mcp` for each MCP client. Each secret is shown once, so transfer it directly to the destination secret manager.
 
-## Adding a source app
+Cloud commands and dashboard capabilities change over time. Inspect `cloud <command> --help` before provisioning. Do not enable a Cloud-managed mail integration on the Sink app; Sink is the inbox.
 
-On the Sink installation, mint an installation-owned bearer credential for the
-source app. The purpose-to-capability mapping is closed: `sink.ingest` grants
-only `consumption`.
+## Connect a Laravel app
 
-```shell
-php artisan bfc:credential:mint installation <installation-id> --kind=bearer --purpose=consumption --name=<source-app> --local
+In the Laravel app whose mail you want to capture:
+
+1. Install the client.
+
+   ```shell
+   composer require artisan-build/sink-client
+   ```
+
+2. Run the installer and enter the `sink.ingest` credential at the masked prompt.
+
+   ```shell
+   php artisan sink:install --url=https://sink.example.com
+   ```
+
+3. Enable Sink only in environments where mail must be captured.
+
+   ```dotenv
+   MAIL_MAILER=sink
+   ```
+
+The installer writes `SINK_URL` and `SINK_TOKEN` to that app's `.env`. Installing the package alone does not change the app's mailer. In `production`, the transport also refuses to start unless `SINK_ALLOW_PRODUCTION=true` is explicitly set.
+
+Send mail through Laravel as usual. Sink retries temporary HTTP failures, uses an idempotency key so a retry does not create a duplicate, and throws if delivery to Sink never succeeds.
+
+Run `php artisan sink:update` in the source app to compare its envelope version with the configured Sink server. Upgrade the Sink server before upgrading clients.
+
+## Use the inbox and MCP
+
+Open `/inbox` after signing in to search and inspect captured messages. Sink renders HTML in a sandboxed frame and keeps raw MIME and attachment bytes in the configured storage disk.
+
+Connect an HTTP MCP client to `https://sink.example.com/mcp` with this header:
+
+```text
+Authorization: Bearer <sink.mcp credential>
 ```
 
-The command prints the credential once. Move it directly into the source app's
-secret manager or the masked `sink:install` prompt; do not place it in chat,
-command transcripts, or source control. Manage it with the corresponding
-`bfc:credential:list`, `bfc:credential:rotate`, and `bfc:credential:revoke`
-commands, always using `--local` when operating on the current installation.
+For example, call `count_messages` with an app, subject, recipient, or time window to count matching sends. Use `body_matches` when you need to assert body content: it returns only a boolean and match count. `purge` is the only mutating MCP tool and refuses an unscoped deletion.
 
-In the source Laravel app:
+## Configuration
 
-```shell
-composer require artisan-build/sink-client
-php artisan sink:install --url=<SINK_URL> --token=<token>
-```
+### Sink server
 
-Then opt in explicitly:
+Leave these unset unless you need to change the documented default. Laravel Cloud resource variables are not listed here because Cloud must inject them.
 
-```dotenv
-MAIL_MAILER=sink
-SINK_URL=<SINK_URL>
-SINK_TOKEN=<token>
-```
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SINK_ROUTE_PREFIX` | empty | Prefixes the ingest, capabilities, and inbox routes. |
+| `SINK_QUEUE_CONNECTION` | default queue | Overrides the queue connection used by parse jobs. Leave it unset for a Cloud managed queue. |
+| `SINK_DISK` | `FILESYSTEM_DISK`, then `local` | Storage disk for raw MIME and attachment bytes. |
+| `SINK_DB_HOST`, `SINK_DB_PORT`, `SINK_DB_DATABASE`, `SINK_DB_USERNAME`, `SINK_DB_PASSWORD` | unset | Defines a separate PostgreSQL metadata connection. Leave all five unset to use the app's default database. |
+| `SINK_RETENTION_DAYS` | `7` | Deletes messages older than this many days. |
+| `SINK_MAX_MESSAGES` | unset | Optional maximum retained message count. |
+| `SINK_MAX_TOTAL_BYTES` | unset | Optional maximum retained message bytes. |
+| `SINK_MCP_PATH` | `/mcp` | HTTP path for the MCP server. |
 
-Installing the package alone does not change your mailer. Sink only captures mail
-when `MAIL_MAILER=sink` is selected. The production fuse refuses to construct the
-transport in `production` unless `SINK_ALLOW_PRODUCTION=true`, preventing Sink from
-silently swallowing production mail.
+### Source Laravel app
 
-> **Using a coding agent in the source app?** `sink-client` ships a
-> `configuring-sink-client` skill under
-> `vendor/artisan-build/sink-client/skills/configuring-sink-client/` once installed.
-> Point your agent at it and ask it to configure the Sink client. It covers
-> `composer require`, `sink:install`, setting `MAIL_MAILER=sink`, the production
-> fuse, credential handoff by the Sink operator, verifying a test send arrives, and
-> troubleshooting.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MAIL_MAILER` | app default | Set to `sink` to activate capture. |
+| `SINK_URL` | required | Base URL of the Sink installation. |
+| `SINK_TOKEN` | required | Bearer credential with the `consumption` purpose. |
+| `SINK_STREAM` | unset | Optional stream label reserved for message grouping. |
+| `SINK_ALLOW_PRODUCTION` | `false` | Allows the capture transport when `APP_ENV=production`. |
+| `SINK_RETRY_ATTEMPTS` | `3` | HTTP attempts before the send fails. |
+| `SINK_RETRY_BASE_MS` | `200` | Base delay for exponential retry backoff. |
+| `SINK_TIMEOUT` | `15` | Per-request timeout in seconds. |
+| `SINK_MAX_MESSAGE_BYTES` | `10485760` | Maximum MIME payload before attachments or bodies are omitted. |
 
-## Connecting a coding agent (MCP)
+## Troubleshooting
 
-The HTTP MCP server is registered at `SINK_MCP_PATH`, default `/mcp`, and requires
-`Authorization: Bearer <token>`. Requests without a resolving bearer token fail
-closed with `401`.
+### `database/database.sqlite` does not exist
 
-Sink's MCP server is body-blind: no tool returns rendered or raw body content.
-Agents get envelope metadata, recipients, headers, links, attachment metadata,
-counts, and boolean body assertions.
+Run `touch database/database.sqlite`, then `php artisan migrate --graceful`. Commands that inspect the schedule can also need the local database because the default cache store uses it.
 
-MCP tools:
+### A command uses the wrong database
 
-- `list_apps` — source apps that have sent, with counts and last-seen.
-- `list_recent` — recent message metadata. No body.
-- `count_messages` — count matching messages by app, subject, recipient, time
-  window, and stream.
-- `recipients` — recipient addresses matching a filter.
-- `assert_count` — pass/fail count assertion with actual vs expected.
-- `stats` — grouped counts by subject, app, or recipient domain.
-- `message_detail` — full metadata for one message, including headers, links,
-  attachment metadata, sizes, and timestamps. No body.
-- `links` — normalized extracted URLs for one message.
-- `body_matches` — returns only a boolean and match count for a pattern. Never the
-  matched text.
-- `purge` — the only mutating tool; deletes messages matching an explicit scope and
-  refuses unscoped wipes.
+Run commands from the intended checkout and use `php artisan config:clear` after changing `.env`. In a worktree, copy the primary checkout's `.env`; do not run a setup command in the primary checkout just to prepare the worktree.
 
-## Upgrading
+### A credential returns `401`
 
-Upgrade the Sink server first, run its migrations, and then update source app
-clients. Clients can run:
+Check that it is live, installation-owned, and has the right purpose. Ingest requires `consumption`; MCP requires `mcp`. Credentials from the pre-purpose token store do not work and must be re-minted.
 
-```shell
-php artisan sink:update
-```
+### Messages arrive but stay unparsed
 
-The command derives `/capabilities` from `SINK_URL`, stripping a trailing `/ingest`
-when present, and reports whether the client's envelope major is inside the
-server's supported range. If a source app sends an envelope newer than the server
-understands, `/ingest` returns a 4xx upgrade message instead of accepting it.
+Verify that the managed queue is attached and processing jobs. Remove any hand-written `QUEUE_CONNECTION`, `SQS_*`, or queue credentials that shadow Laravel Cloud's injected values. Leave `SINK_QUEUE_CONNECTION` unset when parse jobs should use the default managed queue.
 
----
+### Storage or database works locally but fails on Cloud
 
-## Out of scope (v1 non-goals)
+Check for manually configured `DB_*`, `DB_CONNECTION`, `AWS_*`, `FILESYSTEM_DISK`, cache, or queue variables. Remove values tied to attached Cloud resources so the managed environment file can supply the correct settings.
 
-- **No SMTP server.** HTTP ingest via the `sink` transport only.
-- **No capture-and-forward / BCC archive.** Capture-only; nothing is delivered.
-- **No per-run streams in v1.** The field is reserved and nullable, but v1 scopes
-  by app and time window.
-- **No agent body access.** MCP assertion tools only; humans view bodies in the UI.
-- **No open registration / no ownership-handoff UI.** Admins invite users; handoff
-  is an operator task.
-- **No deliverability or spam scoring.** That is Mailtrap's domain.
+### Installed package behavior does not match this checkout
 
----
+Run a real `composer install --no-interaction` in the checkout. Do not reuse or symlink another checkout's `vendor` directory.
 
 ## License
 
-Sink is open-sourced software licensed under the [MIT license](LICENSE).
+Sink is open-source software licensed under the [MIT license](LICENSE).
