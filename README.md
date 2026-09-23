@@ -4,7 +4,7 @@
 
 <h1 align="center">Sink</h1>
 
-Sink is a self-hosted mail catcher for Laravel staging, integration, and end-to-end tests. It replaces a hosted test inbox with an HTTP mail transport, a shared web inbox, and body-blind MCP tools on infrastructure you control.
+Sink is a self-hosted mail catcher for Laravel staging, integration, and end-to-end tests. It replaces a hosted test inbox with an HTTP mail transport, a shared web inbox, and Model Context Protocol (MCP) tools on infrastructure you control. The MCP tools are body-blind: they can test message bodies without returning the body text.
 
 Sink captures messages instead of delivering them. It is not an SMTP server, a production mail service, or a replacement for `Mail::fake()` in unit tests.
 
@@ -16,9 +16,10 @@ The rest of this guide is for contributors and teams that want to run their own 
 
 ## What Sink includes
 
-- A `sink` Laravel mail transport that posts raw MIME messages to `POST /ingest`.
+- A `sink` Laravel mail transport that sends `POST /ingest` a JSON envelope containing base64-encoded MIME, an idempotency key, send time, stream, and truncation state.
 - A signed-in inbox at `/inbox` with metadata, rendered mail, headers, links, raw source, and attachments.
 - An HTTP MCP server at `/mcp` by default. Its tools expose metadata and boolean body matches, never body text.
+- A `/capabilities` endpoint that clients use to check envelope compatibility.
 - An hourly `sink:maintain` task that applies the retention and storage limits.
 - Separate, purpose-limited credentials for message ingest and MCP access.
 
@@ -28,7 +29,7 @@ A **credential purpose** is the single protocol a credential may use. Sink maps 
 
 ### Prerequisites
 
-- PHP 8.3 or newer, on a 64-bit build with `ext-gmp` and SQLite support.
+- PHP 8.4.1 or newer, on a 64-bit build with `ext-gmp` and SQLite support.
 - Composer.
 - Git.
 
@@ -76,42 +77,160 @@ From a fresh checkout, run these steps in order:
    composer run dev
    ```
 
-   Open the URL printed by Artisan. Before signing in for the first time, create the local Owner in a second terminal:
+   Open the URL printed by Artisan, then follow **Open application** to `/bfc/ui`; sign-in is at `/bfc/login`. If port 8000 is already in use, run `php artisan serve --host=localhost --port=8001` instead.
+
+6. Run the queue worker in a second terminal.
+
+   ```shell
+   php artisan queue:work
+   ```
+
+   Keep this process running while Sink receives mail. It should report each `ParseMessage` job as `DONE`; without it, messages are accepted but their subject, recipients, headers, links, and attachments stay unparsed.
+
+7. Create the local Owner before signing in for the first time.
 
    ```shell
    php artisan create-admin --local
    ```
 
-   The command prompts for a name, email, and password. `--local` is important: it guarantees that the command writes to this checkout's database instead of a Laravel Cloud environment.
+   The command prompts for an email, name, password, and password confirmation. `--local` is important: it guarantees that the command writes to this checkout's database instead of a Laravel Cloud environment.
+
+8. Create local credentials after signing in.
+
+   Open `/bfc/ui/credentials/installation`. For each source app, issue a Bearer credential for `sink.ingest` with subject type `installation`. Put a stable source-app name such as `billing-staging` in **Subject reference**; that value becomes the message's `app` label in the inbox and MCP filters. Create a separate Bearer credential for `sink.mcp` for each MCP client. Each secret is shown once.
+
+   The CLI alternative for a local ingest credential is:
+
+   ```shell
+   php artisan bfc:credential:mint installation billing-staging --kind=bearer --purpose=consumption --name="billing-staging ingest" --local
+   ```
+
+   The `--local` option keeps the operation off Laravel Cloud. Use `php artisan bfc:credential:list --local` to find an ID, then `php artisan bfc:credential:rotate ID --local` or `php artisan bfc:credential:revoke ID --local` when a credential must be replaced or disabled. The Installation credentials page has the same Rotate and Revoke actions.
 
 ## Deploy it yourself on Laravel Cloud
 
 These steps create a single Sink installation. One installation can receive mail from many Laravel apps.
 
-1. Fork this repository and connect the fork to a Laravel Cloud application. Use the interactive `cloud ship` bootstrap for a new application, or bind an existing application with `cloud repo:config`.
-2. Provision and attach PostgreSQL, a private object-storage bucket, and a managed queue. Enable the scheduler on the web instance. Do not create a manually scaled background worker for the queue.
-3. Let Cloud inject every setting for those resources. **Never set environment variables for a database, cache, queue, or bucket that Cloud provisions.** Cloud injects the credentials and connection selectors such as `DB_CONNECTION`, `QUEUE_CONNECTION`, `CACHE_STORE`, `FILESYSTEM_DISK`, `DB_*`, `REDIS_*`, `SQS_*`, and `AWS_*`. Setting your own value shadows the injected value and breaks the resource.
-4. Set only app-specific values that Cloud does not inject, such as `APP_NAME`, `APP_URL`, `APP_ENV=production`, `APP_DEBUG=false`, and any Sink retention limits you want to change. Let Cloud preserve or generate `APP_KEY`.
-5. Deploy, run `php artisan migrate --force` in the Cloud environment, and verify that the database connects, the private disk can write and read, queued parse jobs drain, and the scheduler lists `sink:maintain` hourly.
-6. From your local checkout, create the first Owner in the intended Cloud environment:
+You need a Laravel Cloud account and the Laravel Cloud `cloud` CLI. Authenticate with `cloud auth`. The examples below use `SINK_CLOUD_ENVIRONMENT_ID` for the environment ID shown by Cloud, not its display name. CLI commands and dashboard labels can change, so inspect `cloud <command> --help` before provisioning.
+
+**Never set environment variables for a database, cache, queue, or bucket that Cloud provisions.** Cloud injects both credentials and connection selectors such as `DB_CONNECTION`, `QUEUE_CONNECTION`, `CACHE_STORE`, `FILESYSTEM_DISK`, `DB_*`, `REDIS_*`, `SQS_*`, and `AWS_*`. A value you set yourself shadows the managed value and can break the resource.
+
+1. Fork this repository and clone your fork.
+
+2. Bootstrap a new Cloud application from that checkout.
 
    ```shell
-   php artisan create-admin --environment=production
+   cloud ship
    ```
 
-   Replace `production` with the intended Cloud environment name. This command intentionally reaches Laravel Cloud when `--environment` is present. It prompts locally and sends a password hash to the selected environment. Use `--local` instead only when you mean the current machine.
-7. Sign in and open **Installation credentials**. Create one Bearer credential for `sink.ingest` for each source app. Create a separate Bearer credential for `sink.mcp` for each MCP client. Each secret is shown once, so transfer it directly to the destination secret manager.
+   In the interactive flow, connect the fork and let `cloud ship` create and attach PostgreSQL. A successful first deployment and an attached database should appear in the dashboard. For an existing application, skip `cloud ship` and continue with the binding step.
 
-Cloud commands and dashboard capabilities change over time. Inspect `cloud <command> --help` before provisioning. Do not enable a Cloud-managed mail integration on the Sink app; Sink is the inbox.
+3. Bind the checkout to the Cloud application.
+
+   ```shell
+   cloud repo:config
+   ```
+
+   Run this even after `cloud ship`, which may not write the repository binding. Confirm that `.cloud/config.json` identifies the intended organization and application before continuing.
+
+4. In the Cloud dashboard, open the web instance and enable its scheduler. The instance should show scheduling as enabled.
+
+5. In **Application > Environment > Storage**, create a private object-storage bucket. Use the real Sink origin for allowed origins, not `*`; the bucket should appear in the application's storage list.
+
+6. From the same Storage screen, attach the bucket to the Sink environment. The environment should show the bucket as attached.
+
+7. In the environment's managed queues screen, create a managed queue. Do not create a manually scaled background-process worker; the queue should appear as available to the environment.
+
+8. Make that managed queue the environment default. Cloud should identify it as the default queue.
+
+9. In **Environment > Settings > Environment variables**, set only app-specific values that Cloud does not inject: `APP_NAME`, `APP_URL`, `APP_ENV=production`, `APP_DEBUG=false`, and any Sink retention limits you want to change. Let Cloud preserve or generate `APP_KEY`.
+
+10. Deploy the application.
+
+    ```shell
+    cloud deploy -n --open
+    ```
+
+    Wait for the deployment to finish successfully before running commands against it.
+
+11. Copy the environment ID from Cloud and export it for the remaining commands.
+
+    ```shell
+    export SINK_CLOUD_ENVIRONMENT_ID=replace-with-environment-id
+    ```
+
+    Check that `printf '%s\n' "$SINK_CLOUD_ENVIRONMENT_ID"` prints an environment ID, not its display name.
+
+12. Run the migrations.
+
+    ```shell
+    cloud command:run "$SINK_CLOUD_ENVIRONMENT_ID" --cmd="php artisan migrate --force" -n
+    ```
+
+    The monitored command should finish successfully and list completed migrations.
+
+13. Verify the injected database connection.
+
+    ```shell
+    cloud tinker "$SINK_CLOUD_ENVIRONMENT_ID" --code='echo config("database.default").PHP_EOL; Illuminate\Support\Facades\DB::connection()->getPdo();'
+    ```
+
+    It should print Cloud's database connection name and exit without a connection error.
+
+14. Verify a private-disk write/read/delete round trip.
+
+    ```shell
+    cloud tinker "$SINK_CLOUD_ENVIRONMENT_ID" --code='$path="sink-readme-check"; Illuminate\Support\Facades\Storage::put($path, "ok"); echo Illuminate\Support\Facades\Storage::get($path).PHP_EOL; Illuminate\Support\Facades\Storage::delete($path);'
+    ```
+
+    It should print `ok`.
+
+15. Verify the injected queue connection.
+
+    ```shell
+    cloud tinker "$SINK_CLOUD_ENVIRONMENT_ID" --code='echo config("queue.default").PHP_EOL;'
+    ```
+
+    It should print Cloud's managed connection. The source-app smoke test below proves that the queue drains a real parse job.
+
+16. Verify the scheduler.
+
+    ```shell
+    cloud command:run "$SINK_CLOUD_ENVIRONMENT_ID" --cmd="php artisan schedule:list" -n
+    ```
+
+    The monitored command should finish successfully and list `sink:maintain` hourly.
+
+17. Verify the public capabilities endpoint.
+
+    ```shell
+    curl --fail https://sink.example.com/capabilities
+    ```
+
+    Replace `sink.example.com` with the environment URL. The endpoint should return a JSON capabilities document with HTTP `200`.
+
+18. From the bound local checkout, create the first Owner and let the command show its environment picker:
+
+    ```shell
+    php artisan create-admin
+    ```
+
+    Select the intended Cloud environment. For a non-interactive call, pass `--environment=<environment-id>`, not the environment name. The command prompts locally and sends a password hash to the selected environment. Use `--local` only when you mean the current machine.
+
+19. Sign in at `/bfc/login` and open `/bfc/ui/credentials/installation`. Create one installation-owned Bearer credential for `sink.ingest` for each source app, putting the source app's stable name in **Subject reference**. That value is the `app` label in the inbox and MCP filters. Create a separate Bearer credential for `sink.mcp` for each MCP client. Transfer each shown-once secret directly to the destination secret manager.
+
+Do not enable a Cloud-managed mail integration on the Sink app; Sink is the inbox.
 
 ## Connect a Laravel app
 
-In the Laravel app whose mail you want to capture:
+**Release status:** no published `artisan-build/sink-client` version currently resolves from Packagist. The published v0.1.0 and v0.2.0 clients require an unpublished `artisan-build/sink-contracts ^1.0`, while this repository's compatible client, contracts, and server are version 1.0.0 but are not published. Do not run `composer require artisan-build/sink-client` until the 1.0.0 package line is published.
+
+After those 1.0.0 packages are published, run these steps in the Laravel app whose mail you want to capture:
 
 1. Install the client.
 
    ```shell
-   composer require artisan-build/sink-client
+   composer require artisan-build/sink-client:^1.0
    ```
 
 2. Run the installer and enter the `sink.ingest` credential at the masked prompt.
@@ -119,6 +238,8 @@ In the Laravel app whose mail you want to capture:
    ```shell
    php artisan sink:install --url=https://sink.example.com
    ```
+
+   The installer asks before writing `.env` and may also ask to pin the installed client major in `composer.json`.
 
 3. Enable Sink only in environments where mail must be captured.
 
@@ -128,7 +249,15 @@ In the Laravel app whose mail you want to capture:
 
 The installer writes `SINK_URL` and `SINK_TOKEN` to that app's `.env`. Installing the package alone does not change the app's mailer. In `production`, the transport also refuses to start unless `SINK_ALLOW_PRODUCTION=true` is explicitly set.
 
-Send mail through Laravel as usual. Sink retries temporary HTTP failures, uses an idempotency key so a retry does not create a duplicate, and throws if delivery to Sink never succeeds.
+The client retries failed HTTP requests, including permanent failures such as `401` and `422`, uses an idempotency key so a retry does not create a duplicate, and throws if delivery to Sink never succeeds.
+
+4. Send a smoke-test message.
+
+   ```shell
+   php artisan tinker --execute='Illuminate\Support\Facades\Mail::raw("hello", fn ($message) => $message->to("someone@example.test")->subject("Sink smoke test"));'
+   ```
+
+   Open `/inbox` on the Sink server. You should see one message with subject **Sink smoke test** and the `app` label you entered as the ingest credential's Subject reference. Locally, the queue worker should report the parse job as `DONE`; on Cloud, the managed queue should return to no pending jobs.
 
 Run `php artisan sink:update` in the source app to compare its envelope version with the configured Sink server. Upgrade the Sink server before upgrading clients.
 
@@ -142,7 +271,18 @@ Connect an HTTP MCP client to `https://sink.example.com/mcp` with this header:
 Authorization: Bearer <sink.mcp credential>
 ```
 
-For example, call `count_messages` with an app, subject, recipient, or time window to count matching sends. Use `body_matches` when you need to assert body content: it returns only a boolean and match count. `purge` is the only mutating MCP tool and refuses an unscoped deletion.
+Sink provides these ten tools:
+
+- `list_apps`: list app labels with message counts and latest receipt times.
+- `list_recent`: list recent message metadata without body text.
+- `count_messages`: count messages by app, subject, recipient, stream, or time window.
+- `recipients`: list recipient addresses and their `to`, `cc`, or `bcc` kind.
+- `assert_count`: assert that a filtered message count equals an expected integer.
+- `stats`: group message statistics by app, subject, or recipient domain.
+- `message_detail`: return headers, recipients, attachments, and other metadata, but not body text.
+- `links`: return normalized URLs extracted from a message without returning body text.
+- `body_matches`: test for a body substring and return only a boolean and occurrence count.
+- `purge`: delete messages in an explicit metadata scope; it refuses an unscoped deletion.
 
 ## Configuration
 
@@ -152,7 +292,7 @@ Leave these unset unless you need to change the documented default. Laravel Clou
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SINK_ROUTE_PREFIX` | empty | Prefixes the ingest, capabilities, and inbox routes. |
+| `SINK_ROUTE_PREFIX` | empty | Prefixes the ingest, capabilities, and inbox routes. If set, `SINK_URL` in every source app must include the same prefix. |
 | `SINK_QUEUE_CONNECTION` | default queue | Overrides the queue connection used by parse jobs. Leave it unset for a Cloud managed queue. |
 | `SINK_DISK` | `FILESYSTEM_DISK`, then `local` | Storage disk for raw MIME and attachment bytes. |
 | `SINK_DB_HOST`, `SINK_DB_PORT`, `SINK_DB_DATABASE`, `SINK_DB_USERNAME`, `SINK_DB_PASSWORD` | unset | Defines a separate PostgreSQL metadata connection. Leave all five unset to use the app's default database. |
@@ -166,7 +306,7 @@ Leave these unset unless you need to change the documented default. Laravel Clou
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `MAIL_MAILER` | app default | Set to `sink` to activate capture. |
-| `SINK_URL` | required | Base URL of the Sink installation. |
+| `SINK_URL` | required | Base URL of the Sink installation, including `SINK_ROUTE_PREFIX` when the server uses one. |
 | `SINK_TOKEN` | required | Bearer credential with the `consumption` purpose. |
 | `SINK_STREAM` | unset | Optional stream label reserved for message grouping. |
 | `SINK_ALLOW_PRODUCTION` | `false` | Allows the capture transport when `APP_ENV=production`. |
@@ -187,11 +327,15 @@ Run commands from the intended checkout and use `php artisan config:clear` after
 
 ### A credential returns `401`
 
-Check that it is live, installation-owned, and has the right purpose. Ingest requires `consumption`; MCP requires `mcp`. Credentials from the pre-purpose token store do not work and must be re-minted.
+Check that it is live, installation-owned, and has the right purpose. Ingest requires `consumption`; MCP requires `mcp`. Tokens created before this version do not have a purpose and must be re-minted.
 
 ### Messages arrive but stay unparsed
 
-Verify that the managed queue is attached and processing jobs. Remove any hand-written `QUEUE_CONNECTION`, `SQS_*`, or queue credentials that shadow Laravel Cloud's injected values. Leave `SINK_QUEUE_CONNECTION` unset when parse jobs should use the default managed queue.
+Locally, start `php artisan queue:work` and keep it running. On Laravel Cloud, verify that the managed queue is attached and processing jobs. Remove any hand-written `QUEUE_CONNECTION`, `SQS_*`, or queue credentials that shadow Cloud's injected values. Leave `SINK_QUEUE_CONNECTION` unset when parse jobs should use the default managed queue.
+
+### Source apps receive `404` after adding a route prefix
+
+Include the prefix in every source app's `SINK_URL`. For example, when `SINK_ROUTE_PREFIX=sink`, use `SINK_URL=https://sink.example.com/sink`; the client appends `/ingest` and `/capabilities` itself.
 
 ### Storage or database works locally but fails on Cloud
 
