@@ -7,7 +7,7 @@ return [
         'name' => 'Sink',
         'slug' => 'sink',
         'description' => 'Self-hosted, unmetered staging and test mail capture for Laravel.',
-        'icon' => 'https://scalpels.app/products/sink/icon.svg',
+        'icon' => 'https://scalpels.app/img/products/transparent/sink.svg',
         'product_url' => 'https://scalpels.app/products/sink',
     ],
 
