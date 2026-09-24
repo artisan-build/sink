@@ -15,6 +15,7 @@
     "require": {
         "php": "^8.3",
         "artisan-build/built-for-cloud": "^0.16.0",
+        "artisan-build/hone-client": "^1.4",
         "artisan-build/sink-server": "^1.0",
         "laravel/chisel": "^0.1.0",
         "laravel/framework": "^13.17",
