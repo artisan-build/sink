@@ -16,7 +16,7 @@
     ],
     "require": {
         "php": "^8.3",
-        "artisan-build/built-for-cloud": "^0.16.0",
+        "artisan-build/built-for-cloud": "^0.17",
         "artisan-build/sink-contracts": "^1.0",
         "illuminate/bus": "^13.17",
         "illuminate/contracts": "^13.17",

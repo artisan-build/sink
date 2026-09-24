@@ -22,14 +22,17 @@ test('production roots use the Sink layout and package authentication middleware
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $membersMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.members.index'));
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.16.0')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.17.0')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
         ->and(config('livewire.component_layout'))->toBe('layouts.app')
         ->and(realpath(view()->getFinder()->find('layouts.app')))
         ->toBe(realpath(resource_path('views/layouts/app.blade.php')))
         ->and($dashboardMiddleware)->toContain(EnsureUserIsAuthenticated::class)
         ->and($inboxMiddleware)->toContain(EnsureUserIsAuthenticated::class)
-        ->and($membersMiddleware)->toContain(EnsureStandaloneAuthority::class, EnsureUserIsAuthenticated::class)
+        ->and($membersMiddleware)->toContain(
+            EnsureStandaloneAuthority::class,
+            EnsureUserIsAuthenticated::class.':'.EnsureUserIsAuthenticated::DEFER_MANAGED_AUTHORITY,
+        )
         ->and(class_exists('App\\Http\\Middleware\\AuthenticateConsoleOrLocal'))->toBeFalse()
         ->and(class_exists('App\\Models\\User'))->toBeFalse();
 });
