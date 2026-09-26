@@ -27,7 +27,7 @@
         "illuminate/support": "^13.17",
         "laravel/mcp": "^0.7 || ^0.8",
         "livewire/livewire": "^4.1",
-        "zbateson/mail-mime-parser": "^3.0"
+        "zbateson/mail-mime-parser": "^3.0.8"
     },
     "require-dev": {
         "orchestra/testbench": "^11.0",
