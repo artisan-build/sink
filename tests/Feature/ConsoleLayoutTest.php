@@ -18,11 +18,11 @@ use Livewire\Drawer\Utils;
 use Livewire\LivewireManager;
 
 test('production roots use the Sink layout and package authentication middleware', function (): void {
-    $dashboardMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('dashboard'));
+    $dashboardMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.dashboard'));
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $membersMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.members.index'));
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.17.0')
+    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
         ->and(config('auth.providers.users.model'))->toBe(User::class)
         ->and(config('livewire.component_layout'))->toBe('layouts.app')
         ->and(realpath(view()->getFinder()->find('layouts.app')))
@@ -42,7 +42,7 @@ test('each package role receives the Sink shell from its normal web session', fu
 
     consoleLayoutLogin($user);
 
-    $response = $this->get(route('dashboard'))
+    $response = $this->get(route('bfc.dashboard'))
         ->assertOk()
         ->assertSee($user->name)
         ->assertSee($user->email)
@@ -123,7 +123,7 @@ test('hostile package identity values stay escaped in the Sink shell', function 
 
     consoleLayoutLogin($user);
 
-    $html = (string) $this->get(route('dashboard'))->assertOk()->getContent();
+    $html = (string) $this->get(route('bfc.dashboard'))->assertOk()->getContent();
     $escapedControl = Blade::render('<span title="{{ $value }}">{{ $value }}</span>', ['value' => $hostileName]);
     $rawDecoy = Blade::render('<span title="{!! $value !!}">{!! $value !!}</span>', ['value' => $hostileName]);
 
@@ -165,7 +165,7 @@ test('the Sink shell logs out through the package lifecycle', function (): void 
 
     consoleLayoutLogin($user);
 
-    $dashboard = $this->get(route('dashboard'))->assertOk();
+    $dashboard = $this->get(route('bfc.dashboard'))->assertOk();
     $dashboard->assertSee(route('bfc.ui.logout'), false);
 
     $this->post(route('bfc.ui.logout'))
@@ -195,7 +195,7 @@ function consoleLayoutLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }
 
 function ensureConsoleLayoutMessagesTable(): void

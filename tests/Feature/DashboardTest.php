@@ -8,15 +8,15 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
 test('guests are redirected to the login page', function (): void {
-    $response = $this->get(route('dashboard'));
-    $response->assertRedirect(route('bfc.login'));
+    $response = $this->get(route('bfc.dashboard'));
+    $response->assertRedirect(route('bfc.login', ['intended' => '/dashboard']));
 });
 
 test('authenticated users can visit the dashboard', function (): void {
     $user = dashboardUser(UserRole::Member);
     dashboardLogin($user);
 
-    $response = $this->get(route('dashboard'));
+    $response = $this->get(route('bfc.dashboard'));
     $response->assertOk();
 });
 
@@ -41,5 +41,5 @@ function dashboardLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }

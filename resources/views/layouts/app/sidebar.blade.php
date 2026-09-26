@@ -1,12 +1,12 @@
 <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900">
     <flux:sidebar.header>
-        <x-app-logo :sidebar="true" href="{{ route('dashboard') }}" wire:navigate />
+        <x-app-logo :sidebar="true" href="{{ route('bfc.dashboard') }}" wire:navigate />
         <flux:sidebar.collapse class="lg:hidden" />
     </flux:sidebar.header>
 
     <flux:sidebar.nav>
         <flux:sidebar.group :heading="__('Platform')" class="grid">
-            <flux:sidebar.item icon="home" :href="route('dashboard')" :current="request()->routeIs('dashboard')" wire:navigate data-testid="sidebar-dashboard">
+            <flux:sidebar.item icon="home" :href="route('bfc.dashboard')" :current="request()->routeIs('bfc.dashboard')" wire:navigate data-testid="sidebar-dashboard">
                 {{ __('Dashboard') }}
             </flux:sidebar.item>
             <flux:sidebar.item icon="inbox" :href="route('sink.inbox')" :current="request()->routeIs('sink.*')" wire:navigate data-testid="sidebar-inbox">

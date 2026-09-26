@@ -76,7 +76,7 @@ test('package users can reset their password with a valid handoff', function ():
     $this->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'replacement-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
     $this->assertAuthenticatedAs($user);
 });
 
