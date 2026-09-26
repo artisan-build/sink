@@ -128,7 +128,7 @@ test('the package mounts and serves the standalone human lifecycle', function ()
     $this->post(route('bfc.login.store'), [
         'email' => $owner->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $home = $this->get(route('bfc.ui.home'))->assertOk();
     assertTestMarker($home, 'ui-shell');
@@ -168,9 +168,9 @@ test('installation API credentials have no Sink shell or package management auth
     ])->save();
     $headers = ['Authorization' => 'Bearer '.$secret];
 
-    $this->get(route('bfc.dashboard'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('bfc.dashboard'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/dashboard']));
     $this->get(route('sink.inbox'), $headers)->assertRedirect(route('bfc.login'));
-    $this->get(route('bfc.ui.home'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/bfc/ui']));
+    $this->get(route('bfc.ui.home'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/settings']));
     $this->get(route('bfc.members.index'), $headers)->assertRedirect(route('bfc.login'));
 
     expect($member->refresh()->status)->toBe('active')
@@ -196,7 +196,7 @@ test('every recognized role can reach and manage installation credentials', func
     $this->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $page = $this->get(route('bfc.ui.installation-credentials.index'))->assertOk();
     assertTestMarker($page, 'installation-credentials');
@@ -231,7 +231,7 @@ test('installation ingest and MCP credentials survive issuer departure and autho
     $this->post(route('bfc.login.store'), [
         'email' => $issuer->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $issued = [];
     foreach ([

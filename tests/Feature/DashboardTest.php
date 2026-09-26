@@ -9,7 +9,7 @@ use Illuminate\Support\Str;
 
 test('guests are redirected to the login page', function (): void {
     $response = $this->get(route('bfc.dashboard'));
-    $response->assertRedirect(route('bfc.login'));
+    $response->assertRedirect(route('bfc.login', ['intended' => '/dashboard']));
 });
 
 test('authenticated users can visit the dashboard', function (): void {
@@ -41,5 +41,5 @@ function dashboardLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }

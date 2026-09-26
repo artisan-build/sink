@@ -66,7 +66,7 @@ test('every package role can inspect and explicitly delete or purge Sink message
     $this->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $inbox = $this->get(route('sink.inbox'))->assertOk()->assertSee($message->subject);
     assertTestMarker($inbox, 'inbox-purge');
@@ -158,7 +158,7 @@ test('bfc auth denies an offboarded package user and invalidates the surviving s
     $this->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
     $this->get(route('sink.inbox'))->assertOk();
 
     OffboardedSubject::query()->create([

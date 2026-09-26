@@ -195,7 +195,7 @@ function consoleLayoutLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }
 
 function ensureConsoleLayoutMessagesTable(): void

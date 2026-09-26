@@ -14,6 +14,7 @@ return [
     ],
 
     'dashboard' => DashboardController::class,
+    'livewire_layout' => false,
 
     'credentials' => [
         'guard' => env('BUILT_FOR_CLOUD_CREDENTIAL_GUARD', 'bfc'),
