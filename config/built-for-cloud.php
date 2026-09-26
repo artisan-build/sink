@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\DashboardController;
+
 return [
     'manifest' => [
         'name' => 'Sink',
@@ -10,6 +12,8 @@ return [
         'icon' => 'https://scalpels.app/img/products/transparent/sink.png',
         'product_url' => 'https://scalpels.app/products/sink',
     ],
+
+    'dashboard' => DashboardController::class,
 
     'credentials' => [
         'guard' => env('BUILT_FOR_CLOUD_CREDENTIAL_GUARD', 'bfc'),

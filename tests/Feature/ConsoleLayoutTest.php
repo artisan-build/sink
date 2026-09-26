@@ -18,7 +18,7 @@ use Livewire\Drawer\Utils;
 use Livewire\LivewireManager;
 
 test('production roots use the Sink layout and package authentication middleware', function (): void {
-    $dashboardMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('dashboard'));
+    $dashboardMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.dashboard'));
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $membersMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.members.index'));
 
@@ -42,7 +42,7 @@ test('each package role receives the Sink shell from its normal web session', fu
 
     consoleLayoutLogin($user);
 
-    $response = $this->get(route('dashboard'))
+    $response = $this->get(route('bfc.dashboard'))
         ->assertOk()
         ->assertSee($user->name)
         ->assertSee($user->email)
@@ -123,7 +123,7 @@ test('hostile package identity values stay escaped in the Sink shell', function 
 
     consoleLayoutLogin($user);
 
-    $html = (string) $this->get(route('dashboard'))->assertOk()->getContent();
+    $html = (string) $this->get(route('bfc.dashboard'))->assertOk()->getContent();
     $escapedControl = Blade::render('<span title="{{ $value }}">{{ $value }}</span>', ['value' => $hostileName]);
     $rawDecoy = Blade::render('<span title="{!! $value !!}">{!! $value !!}</span>', ['value' => $hostileName]);
 
@@ -165,7 +165,7 @@ test('the Sink shell logs out through the package lifecycle', function (): void 
 
     consoleLayoutLogin($user);
 
-    $dashboard = $this->get(route('dashboard'))->assertOk();
+    $dashboard = $this->get(route('bfc.dashboard'))->assertOk();
     $dashboard->assertSee(route('bfc.ui.logout'), false);
 
     $this->post(route('bfc.ui.logout'))

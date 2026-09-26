@@ -168,7 +168,7 @@ test('installation API credentials have no Sink shell or package management auth
     ])->save();
     $headers = ['Authorization' => 'Bearer '.$secret];
 
-    $this->get(route('dashboard'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('bfc.dashboard'), $headers)->assertRedirect(route('bfc.login'));
     $this->get(route('sink.inbox'), $headers)->assertRedirect(route('bfc.login'));
     $this->get(route('bfc.ui.home'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/bfc/ui']));
     $this->get(route('bfc.members.index'), $headers)->assertRedirect(route('bfc.login'));
