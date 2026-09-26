@@ -33,7 +33,7 @@ test('Sink declares the exact package-owned human auth and UI configuration', fu
             'name' => 'Sink',
             'slug' => 'sink',
             'description' => 'Self-hosted, unmetered staging and test mail capture for Laravel.',
-            'icon' => 'https://scalpels.app/img/products/transparent/sink.svg',
+            'icon' => 'https://scalpels.app/img/products/transparent/sink.png',
             'product_url' => 'https://scalpels.app/products/sink',
         ])->and(config('built-for-cloud.credentials.app_purposes'))->toBe([
             'sink.ingest' => 'consumption',
