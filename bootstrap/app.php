@@ -1,6 +1,5 @@
 <?php
 
-use App\Console\Commands\Fresh;
 use App\Console\Commands\InstallFluxPro;
 use App\Console\Commands\OptimizeTailwind;
 use Illuminate\Foundation\Application;
@@ -14,7 +13,6 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withCommands([
-        Fresh::class,
         InstallFluxPro::class,
         OptimizeTailwind::class,
     ])
