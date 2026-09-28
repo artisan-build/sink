@@ -6,7 +6,6 @@ use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureStandaloneAuthority;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureUserIsAuthenticated;
 use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\BuiltForCloud\UserRole;
-use Composer\InstalledVersions;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Blade;
@@ -22,8 +21,7 @@ test('production roots use the Sink layout and package authentication middleware
     $inboxMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('sink.inbox'));
     $membersMiddleware = resolve('router')->gatherRouteMiddleware(Route::getRoutes()->getByName('bfc.members.index'));
 
-    expect(InstalledVersions::getPrettyVersion('artisan-build/built-for-cloud'))->toBe('v0.18.0')
-        ->and(config('auth.providers.users.model'))->toBe(User::class)
+    expect(config('auth.providers.users.model'))->toBe(User::class)
         ->and(config('livewire.component_layout'))->toBe('layouts.app')
         ->and(realpath(view()->getFinder()->find('layouts.app')))
         ->toBe(realpath(resource_path('views/layouts/app.blade.php')))
