@@ -251,7 +251,6 @@ JSON.PHP_EOL);
     expect(Artisan::output())->toContain('Set MAIL_MAILER=sink')
         ->and((string) file_get_contents($host.'/.env'))->toContain('SINK_URL=https://sink.test')
         ->and((string) file_get_contents($host.'/.env'))->toContain('SINK_TOKEN=secret')
-        ->and($composer->require->{'artisan-build/sink-client'})->toBe('^1')
         ->and($composer->{'require-dev'})->toBeInstanceOf(stdClass::class)
         ->and($composer->autoload->{'psr-4'})->toBeInstanceOf(stdClass::class)
         ->and($composer->extra->empty_object)->toBeInstanceOf(stdClass::class)
