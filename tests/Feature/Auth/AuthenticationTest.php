@@ -24,7 +24,7 @@ test('package users can authenticate through the standalone login', function ():
         'email' => $user->email,
         'password' => 'test-created-password',
     ])->assertSessionHasNoErrors()
-        ->assertRedirect(route('bfc.ui.home', absolute: false));
+        ->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $this->assertAuthenticatedAs($user);
     expect(session(StandaloneAccess::SESSION_VERSION_KEY))->toBe($user->auth_session_version)
@@ -89,5 +89,5 @@ function authenticationLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }

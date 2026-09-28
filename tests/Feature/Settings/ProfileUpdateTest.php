@@ -20,7 +20,7 @@ test('the Sink shell presents package identity as read-only account information'
     $user = profileBoundaryUser(UserRole::Member, 'Read Only Identity');
     profileBoundaryLogin($user);
 
-    $response = $this->get(route('dashboard'))
+    $response = $this->get(route('bfc.dashboard'))
         ->assertOk()
         ->assertSee($user->name)
         ->assertSee($user->email)
@@ -101,5 +101,5 @@ function profileBoundaryLogin(User $user): void
     test()->post(route('bfc.login.store'), [
         'email' => $user->email,
         'password' => 'test-created-password',
-    ])->assertRedirect(route('bfc.ui.home', absolute: false));
+    ])->assertRedirect(route('bfc.dashboard', absolute: false));
 }

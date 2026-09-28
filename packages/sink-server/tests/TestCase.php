@@ -41,6 +41,13 @@ abstract class TestCase extends Orchestra
      */
     protected function getEnvironmentSetUp($app): void
     {
+        $app['config']->set('built-for-cloud.manifest', [
+            'name' => 'Sink',
+            'slug' => 'sink',
+            'description' => 'Self-hosted, unmetered staging and test mail capture for Laravel.',
+            'icon' => 'https://scalpels.app/img/products/transparent/sink.png',
+            'product_url' => 'https://scalpels.app/products/sink',
+        ]);
         $app['config']->set('auth.providers.users.model', User::class);
         $app['config']->set('database.default', 'sink');
         $app['config']->set('database.connections.sink', [

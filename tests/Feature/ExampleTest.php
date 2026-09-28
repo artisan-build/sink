@@ -8,7 +8,7 @@ test('the public root is the package-owned Sink landing page', function (): void
     $response = $this->get('/')->assertOk()
         ->assertSee('Sink')
         ->assertSee('Self-hosted, unmetered staging and test mail capture for Laravel.')
-        ->assertSee(route('bfc.ui.home'), false);
+        ->assertSee(route('bfc.dashboard'), false);
 
     expect(Route::getRoutes()->getByName('bfc.landing')?->uri())->toBe('/');
     assertTestMarker($response, 'landing');
