@@ -5,39 +5,98 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
+use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\CredentialStatus;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
+use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
+use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
+use ArtisanBuild\SinkServer\Mcp\Tools\AssertCountTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\BodyMatchesTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\CountMessagesTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\LinksTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\ListAppsTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\ListRecentTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\MessageDetailTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\PurgeTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\RecipientsTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\StatsTool;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
 use ArtisanBuild\SinkServer\Models\MessageBlobCleanupIntent;
 use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
-use Illuminate\Http\Request;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
-use Symfony\Component\HttpFoundation\Response;
+use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
+use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
+use Laravel\Mcp\Server\Middleware\ValidateMcpHeaders;
+use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
+use ParagonIE\Paseto\Builder;
+use ParagonIE\Paseto\Keys\Version4\AsymmetricSecretKey;
+use ParagonIE\Paseto\Protocol\Version4;
+use ParagonIE\Paseto\Purpose;
 
 beforeEach(function (): void {
+    config([
+        'built-for-cloud.console.issuer' => 'https://scalpels.test',
+        'built-for-cloud.console.audience' => 'https://sink.test',
+    ]);
     Storage::fake((string) config('sink-server.disk'));
     mcpCredential('mcp-token');
 });
 
-it('registers only the authenticated web MCP transport', function (): void {
-    $path = (string) config('sink-server.mcp.path');
-    $route = Mcp::getWebServer(ltrim($path, '/'));
+it('registers the exact read-scoped web MCP transport and declares truthful metadata', function (): void {
+    $legacyPath = (string) config('sink-server.mcp.path');
+    $readPath = (string) config('sink-server.mcp.read_path');
+    $legacyRoute = Mcp::getWebServer(ltrim($legacyPath, '/'));
+    $readRoute = Mcp::getWebServer(ltrim($readPath, '/'));
 
-    expect($route)->not->toBeNull()
-        ->and($route?->gatherMiddleware())->toContain(AuthenticateSinkMcp::class)
+    expect($legacyRoute)->not->toBeNull()
+        ->and($legacyRoute?->gatherMiddleware())->toBe([
+            ReorderJsonAccept::class,
+            ValidateMcpHeaders::class,
+            AddWwwAuthenticateHeader::class,
+            AuthenticateSinkMcp::class,
+        ])
+        ->and($readRoute)->not->toBeNull()
+        ->and($readRoute?->gatherMiddleware())->toBe([
+            ReorderJsonAccept::class,
+            ValidateMcpHeaders::class,
+            AddWwwAuthenticateHeader::class,
+            'bfc.mcp:product,read',
+        ])
         ->and(Mcp::getLocalServer('sink'))->toBeNull()
-        ->and(config('sink-server.mcp'))->toBe(['path' => '/mcp']);
+        ->and(config('sink-server.mcp'))->toBe([
+            'path' => '/mcp',
+            'read_path' => '/mcp/read',
+        ])
+        ->and(config('built-for-cloud.mcp'))->toBe([
+            'path' => '/mcp/read',
+            'write_path' => null,
+            'delegated' => true,
+        ]);
+
+    $metadata = $this->getJson('/bfc/meta')->assertOk();
+
+    expect($metadata->json('capabilities'))->toContain('mcp-serve', 'mcp-delegated', 'mcp-effect-scoped')
+        ->and($metadata->json('endpoints'))->toBe(['mcp' => '/mcp/read']);
 });
 
 it('fails closed for unauthenticated MCP HTTP requests and initializes with a valid token', function (): void {
@@ -89,7 +148,7 @@ it('denies a revoked token for MCP requests including the purge tool', function 
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
 
-it('denies every non-installation MCP credential class without recording usage', function (string $case): void {
+it('denies invalid direct MCP credential classes without recording usage', function (string $case): void {
     $secret = 'denied-'.$case;
 
     if ($case === 'legacy') {
@@ -107,9 +166,7 @@ it('denies every non-installation MCP credential class without recording usage',
     } else {
         $attributes = match ($case) {
             'pending' => ['status' => CredentialStatus::Pending],
-            'account-bound' => ['user_id' => 'account-user'],
             'wrong-purpose' => ['purpose' => CredentialPurpose::Consumption],
-            'wrong-subject' => ['subject_type' => SubjectType::ExternalConsumer],
             'basic' => ['kind' => CredentialKind::Basic],
         };
         mcpCredential($secret, $attributes);
@@ -120,25 +177,36 @@ it('denies every non-installation MCP credential class without recording usage',
     ])->assertUnauthorized();
 
     expect(Credential::query()->where('secret_hash', hash('sha256', $secret))->value('last_used_at'))->toBeNull();
-})->with(['pending', 'account-bound', 'wrong-purpose', 'wrong-subject', 'basic', 'legacy']);
+})->with(['pending', 'wrong-purpose', 'basic', 'legacy']);
 
-it('scrubs the bearer before publishing the canonical credential downstream', function (): void {
-    $request = Request::create('/mcp', 'POST', server: [
-        'HTTP_AUTHORIZATION' => 'Bearer mcp-token',
-        'REDIRECT_HTTP_AUTHORIZATION' => 'Bearer mcp-token',
-    ]);
-
-    app(AuthenticateSinkMcp::class)->handle($request, function ($downstream): Response {
-        expect($downstream->headers->get('Authorization'))->toBeNull()
-            ->and($downstream->server->get('HTTP_AUTHORIZATION'))->toBeNull()
-            ->and($downstream->server->get('REDIRECT_HTTP_AUTHORIZATION'))->toBeNull()
-            ->and($downstream->attributes->get(Credential::class))->toBeInstanceOf(Credential::class);
-
-        return response('ok');
+it('keeps the legacy route installation-only', function (string $case): void {
+    $secret = 'denied-'.$case;
+    $credential = mcpCredential($secret, match ($case) {
+        'account-bound' => ['user_id' => '1'],
+        'wrong-subject' => ['subject_type' => SubjectType::ExternalConsumer],
     });
+
+    $this->postJson((string) config('sink-server.mcp.path'), initializePayload(), [
+        'Authorization' => 'Bearer '.$secret,
+    ])->assertUnauthorized();
+
+    expect($credential->refresh()->last_used_at)->toBeNull();
+})->with(['account-bound', 'wrong-subject']);
+
+it('never falls through from an assertion-shaped bearer to a stored credential', function (): void {
+    $assertionShapedBearer = 'v4.public.not-a-valid-assertion';
+    $credential = mcpCredential($assertionShapedBearer);
+
+    foreach (['sink-server.mcp.path', 'sink-server.mcp.read_path'] as $path) {
+        $this->postJson((string) config($path), initializePayload(), [
+            'Authorization' => 'Bearer '.$assertionShapedBearer,
+        ])->assertUnauthorized();
+    }
+
+    expect($credential->refresh()->last_used_at)->toBeNull();
 });
 
-it('exposes exactly the ten body-blind Sink tools and no resources', function (): void {
+it('preserves all ten body-blind Sink tools for the direct installation bearer', function (): void {
     $tools = $this->postJson((string) config('sink-server.mcp.path'), [
         'jsonrpc' => '2.0',
         'id' => 'tools',
@@ -166,6 +234,112 @@ it('exposes exactly the ten body-blind Sink tools and no resources', function ()
     ], ['Authorization' => 'Bearer mcp-token'])
         ->assertOk()
         ->assertJsonPath('result.resources', []);
+});
+
+it('conforms exactly the nine delegated read tools', function (): void {
+    McpDelegatedTools::assertConforms(SinkMcpServer::class);
+
+    $discovered = McpDelegatedTools::discover(SinkMcpServer::class);
+    $expectedClasses = array_column(readToolDeclarations(), 'class');
+    sort($expectedClasses);
+
+    expect($discovered)->toBe([
+        'tools' => $expectedClasses,
+        'violations' => [],
+    ]);
+});
+
+it('declares and advertises the exact classification and read effect for every delegated tool', function (): void {
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
+    $response = delegatedMcpRequest([
+        'jsonrpc' => '2.0',
+        'id' => 'declarations',
+        'method' => 'tools/list',
+    ], $signingKey)->assertOk();
+    $wireTools = collect($response->json('result.tools'))->keyBy('name');
+
+    foreach (readToolDeclarations() as $declaration) {
+        $traits = class_uses_recursive($declaration['class']);
+        $reflection = new ReflectionClass($declaration['class']);
+
+        expect($reflection->getAttributes(IsReadOnly::class))->toHaveCount(1)
+            ->and(ToolClassification::of($declaration['class'])?->value)->toBe($declaration['classification'])
+            ->and(ToolEffect::of($declaration['class'])?->value)->toBe(Effect::Read)
+            ->and($traits)->toContain(
+                AdvertisesToolClassification::class,
+                AdvertisesToolEffect::class,
+                RespectsEffectCeiling::class,
+            )
+            ->and($wireTools->get($declaration['name'])['_meta'])->toBe([
+                'classification' => $declaration['classification']->value,
+                'effect' => Effect::Read->value,
+            ]);
+    }
+
+    expect(ToolClassification::of(PurgeTool::class))->toBeNull()
+        ->and(ToolEffect::of(PurgeTool::class))->toBeNull()
+        ->and(class_uses_recursive(PurgeTool::class))->not->toContain(
+            AdvertisesToolClassification::class,
+            AdvertisesToolEffect::class,
+            RespectsEffectCeiling::class,
+        );
+});
+
+it('admits delegated assertions to read tools while excluding purge', function (): void {
+    ['secret' => $message] = seedMcpMessages();
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
+
+    $list = delegatedMcpRequest([
+        'jsonrpc' => '2.0',
+        'id' => 'delegated-list',
+        'method' => 'tools/list',
+    ], $signingKey)->assertOk();
+    $names = $list->json('result.tools.*.name');
+    sort($names);
+
+    expect($names)->toBe(array_column(readToolDeclarations(), 'name'));
+
+    delegatedMcpRequest(toolCallPayload('count_messages', ['app' => 'alpha']), $signingKey)
+        ->assertOk()
+        ->assertJsonPath('result.content.0.text', json_encode(['count' => 2]));
+
+    delegatedMcpRequest(toolCallPayload('purge', ['app' => 'alpha']), $signingKey)
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'Tool [purge] not found.');
+
+    delegatedMcpRequest(toolCallPayload('body_matches', [
+        'id' => $message->id,
+        'pattern' => 'TOPSECRETBODY',
+    ]), $signingKey)->assertOk()->assertDontSee('TOPSECRETBODY');
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+});
+
+it('keeps purge absent and uncallable on the read door for a direct bearer', function (): void {
+    seedMcpMessages();
+    $readPath = (string) config('sink-server.mcp.read_path');
+    $headers = ['Authorization' => 'Bearer mcp-token'];
+    $list = $this->postJson($readPath, [
+        'jsonrpc' => '2.0',
+        'id' => 'direct-read-list',
+        'method' => 'tools/list',
+    ], $headers)->assertOk();
+
+    expect($list->json('result.tools.*.name'))->not->toContain('purge');
+
+    $this->postJson($readPath, toolCallPayload('purge', ['app' => 'alpha']), $headers)
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'Tool [purge] not found.');
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+});
+
+it('passes the framework MCP product-admission conformance helper', function (): void {
+    McpProductAdmission::assert();
 });
 
 it('counts messages and asserts expected counts across filters', function (): void {
@@ -394,6 +568,94 @@ function initializePayload(): array
     ];
 }
 
+/** @return array<string, mixed> */
+function toolCallPayload(string $name, array $arguments = []): array
+{
+    return [
+        'jsonrpc' => '2.0',
+        'id' => $name.'-'.str()->random(6),
+        'method' => 'tools/call',
+        'params' => [
+            'name' => $name,
+            'arguments' => $arguments,
+        ],
+    ];
+}
+
+function delegatedMcpSigningKey(): AsymmetricSecretKey
+{
+    foreach (range(1, 16) as $ignored) {
+        $secret = AsymmetricSecretKey::generate(new Version4);
+
+        if (strlen($secret->raw()) === SODIUM_CRYPTO_SIGN_SECRETKEYBYTES) {
+            return $secret;
+        }
+    }
+
+    throw new RuntimeException('Could not generate a signing key for the delegated MCP test.');
+}
+
+function fileDelegatedMcpKey(AsymmetricSecretKey $secret): void
+{
+    $keyring = new ConsoleKeyring;
+    $keyring->add('sink-test-key', $secret->getPublicKey()->toHexString());
+    $keyring->activate('sink-test-key');
+}
+
+function delegatedMcpAssertion(AsymmetricSecretKey $secret): string
+{
+    $now = CarbonImmutable::now();
+
+    return (new Builder)
+        ->setVersion(new Version4)
+        ->setPurpose(Purpose::public())
+        ->setKey($secret)
+        ->setClaims([
+            'iss' => 'https://scalpels.test',
+            'sub' => 'sink-test-operator',
+            'aud' => 'https://sink.test',
+            'iat' => $now->toAtomString(),
+            'nbf' => $now->toAtomString(),
+            'exp' => $now->addSeconds(90)->toAtomString(),
+            'jti' => 'sink_mint_'.bin2hex(random_bytes(8)),
+            'display_name' => 'Sink Test Operator',
+            'role' => 'member',
+            'purpose' => 'mcp',
+        ])
+        ->setFooterArray(['kid' => 'sink-test-key'])
+        ->toString();
+}
+
+/** @param array<string, mixed> $payload */
+function delegatedMcpRequest(array $payload, AsymmetricSecretKey $secret): TestResponse
+{
+    return test()->postJson((string) config('sink-server.mcp.read_path'), $payload, [
+        'Authorization' => 'Bearer '.delegatedMcpAssertion($secret),
+    ]);
+}
+
+/**
+ * @return list<array{class: class-string, name: string, classification: Classification}>
+ */
+function readToolDeclarations(): array
+{
+    $declarations = [
+        ['class' => AssertCountTool::class, 'name' => 'assert_count', 'classification' => Classification::Metadata],
+        ['class' => BodyMatchesTool::class, 'name' => 'body_matches', 'classification' => Classification::Metadata],
+        ['class' => CountMessagesTool::class, 'name' => 'count_messages', 'classification' => Classification::Metadata],
+        ['class' => LinksTool::class, 'name' => 'links', 'classification' => Classification::Content],
+        ['class' => ListAppsTool::class, 'name' => 'list_apps', 'classification' => Classification::Content],
+        ['class' => ListRecentTool::class, 'name' => 'list_recent', 'classification' => Classification::Content],
+        ['class' => MessageDetailTool::class, 'name' => 'message_detail', 'classification' => Classification::Content],
+        ['class' => RecipientsTool::class, 'name' => 'recipients', 'classification' => Classification::Content],
+        ['class' => StatsTool::class, 'name' => 'stats', 'classification' => Classification::Content],
+    ];
+
+    usort($declarations, static fn (array $left, array $right): int => $left['name'] <=> $right['name']);
+
+    return $declarations;
+}
+
 /** @param array<string, mixed> $attributes */
 function mcpCredential(string $secret, array $attributes = []): Credential
 {
@@ -416,15 +678,11 @@ function mcpTool(string $name, array $arguments = []): array
 
 function mcpToolResponse(string $name, array $arguments = []): TestResponse
 {
-    return test()->postJson((string) config('sink-server.mcp.path'), [
-        'jsonrpc' => '2.0',
-        'id' => $name.'-'.str()->random(6),
-        'method' => 'tools/call',
-        'params' => [
-            'name' => $name,
-            'arguments' => $arguments,
-        ],
-    ], ['Authorization' => 'Bearer mcp-token']);
+    return test()->postJson(
+        (string) config('sink-server.mcp.path'),
+        toolCallPayload($name, $arguments),
+        ['Authorization' => 'Bearer mcp-token'],
+    );
 }
 
 function purgeToolResponseWithToken(string $plaintext): TestResponse
