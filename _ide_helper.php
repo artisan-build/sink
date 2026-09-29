@@ -5,7 +5,7 @@
 
 /**
  * A helper file for Laravel, to provide autocomplete information to your IDE
- * Generated for Laravel 13.33.0.
+ * Generated for Laravel 13.34.0.
  *
  * This file should not be included in your code, only analyzed by your IDE!
  *
@@ -445,7 +445,7 @@ namespace Illuminate\Support\Facades {
         /**
          * Get or check the current application environment.
          *
-         * @param string|array $environments
+         * @param \UnitEnum|string|array $environments
          * @return string|bool
          * @static
          */
@@ -13593,8 +13593,8 @@ namespace Illuminate\Support\Facades {
         /**
          * Determine if a queue is paused.
          *
-         * @param string $connection
-         * @param string $queue
+         * @param \UnitEnum|string $connection
+         * @param \UnitEnum|string $queue
          * @return bool
          * @static
          */
@@ -19236,7 +19236,7 @@ namespace Illuminate\Support\Facades {
      * @method static \Illuminate\Console\Scheduling\PendingEventAttributes withoutOverlapping(int $expiresAt = 1440, bool $releaseOnTerminationSignals = true)
      * @method static void mergeAttributes(\Illuminate\Console\Scheduling\Event $event)
      * @method static \Illuminate\Console\Scheduling\PendingEventAttributes user(string $user)
-     * @method static \Illuminate\Console\Scheduling\PendingEventAttributes environments(mixed $environments)
+     * @method static \Illuminate\Console\Scheduling\PendingEventAttributes environments(\UnitEnum|string|array $environments)
      * @method static \Illuminate\Console\Scheduling\PendingEventAttributes evenInMaintenanceMode()
      * @method static \Illuminate\Console\Scheduling\PendingEventAttributes evenWhenPaused()
      * @method static \Illuminate\Console\Scheduling\PendingEventAttributes onOneServer()
@@ -19911,6 +19911,21 @@ namespace Illuminate\Support\Facades {
             //Method inherited from \Illuminate\Database\Schema\Builder 
             /** @var \Illuminate\Database\Schema\SQLiteBuilder $instance */
             return $instance->getColumnListing($table);
+        }
+
+        /**
+         * Get the column for a given table.
+         *
+         * @param string $table
+         * @param string $column
+         * @return \Illuminate\Database\Schema\array{name: string, type: string, type_name: string, collation: string|null, nullable: bool, default: mixed, auto_increment: bool, comment: string|null, generation: array{type: string, expression: string|null}|null}
+         * @static
+         */
+        public static function getColumn($table, $column)
+        {
+            //Method inherited from \Illuminate\Database\Schema\Builder
+            /** @var \Illuminate\Database\Schema\SQLiteBuilder $instance */
+            return $instance->getColumn($table, $column);
         }
 
         /**
@@ -31653,8 +31668,5 @@ namespace  {
     class Flux extends \Flux\Flux {}
     class Livewire extends \Livewire\Livewire {}
 }
-
-
-
 
 
