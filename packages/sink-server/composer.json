@@ -25,7 +25,7 @@
         "illuminate/http": "^13.17",
         "illuminate/queue": "^13.17",
         "illuminate/support": "^13.17",
-        "laravel/mcp": "^0.7 || ^0.8",
+        "laravel/mcp": "^1.0",
         "livewire/livewire": "^4.1",
         "zbateson/mail-mime-parser": "^3.0.8"
     },
