@@ -52,6 +52,8 @@ final class SinkServerServiceProvider extends ServiceProvider
                 ->middleware(AuthenticateSinkMcp::class);
             Mcp::web((string) config('sink-server.mcp.read_path', '/mcp/read'), SinkMcpServer::class)
                 ->middleware('bfc.mcp:product,read');
+            Mcp::web((string) config('sink-server.mcp.destructive_path', '/mcp/write'), SinkMcpServer::class)
+                ->middleware('bfc.mcp:product,destructive');
         });
 
         if ($this->app->runningInConsole()) {
@@ -71,6 +73,7 @@ final class SinkServerServiceProvider extends ServiceProvider
         config([
             'built-for-cloud.mcp.path' => config('sink-server.mcp.read_path', '/mcp/read'),
             'built-for-cloud.mcp.write_path' => null,
+            'built-for-cloud.mcp.destructive_path' => config('sink-server.mcp.destructive_path', '/mcp/write'),
             'built-for-cloud.mcp.delegated' => true,
         ]);
     }

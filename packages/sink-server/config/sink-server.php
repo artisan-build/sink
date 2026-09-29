@@ -23,5 +23,6 @@ return [
     'mcp' => [
         'path' => env('SINK_MCP_PATH', '/mcp'),
         'read_path' => env('SINK_MCP_READ_PATH', '/mcp/read'),
+        'destructive_path' => env('SINK_MCP_DESTRUCTIVE_PATH', '/mcp/write'),
     ],
 ];
