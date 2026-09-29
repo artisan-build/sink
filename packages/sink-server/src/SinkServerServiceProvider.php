@@ -8,6 +8,7 @@ use ArtisanBuild\SinkServer\Commands\SinkMaintainCommand;
 use ArtisanBuild\SinkServer\Commands\SinkPruneCommand;
 use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 use ArtisanBuild\SinkServer\Http\Livewire\MessageDetail;
+use ArtisanBuild\SinkServer\Mcp\LegacySinkMcpServer;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
 use Illuminate\Console\Scheduling\Schedule;
@@ -22,6 +23,7 @@ final class SinkServerServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/sink-server.php', SinkServer::CONFIG_KEY);
 
+        $this->declareMcpSurface();
         $this->registerSinkConnection();
     }
 
@@ -46,8 +48,10 @@ final class SinkServerServiceProvider extends ServiceProvider
             ->group(__DIR__.'/../routes/sink-server-ui.php');
 
         $this->app->booted(function (): void {
-            Mcp::web((string) config('sink-server.mcp.path', '/mcp'), SinkMcpServer::class)
-                ->middleware([AuthenticateSinkMcp::class]);
+            Mcp::web((string) config('sink-server.mcp.path', '/mcp'), LegacySinkMcpServer::class)
+                ->middleware(AuthenticateSinkMcp::class);
+            Mcp::web((string) config('sink-server.mcp.read_path', '/mcp/read'), SinkMcpServer::class)
+                ->middleware('bfc.mcp:product,read');
         });
 
         if ($this->app->runningInConsole()) {
@@ -60,6 +64,15 @@ final class SinkServerServiceProvider extends ServiceProvider
                 $schedule->command('sink:maintain')->hourly();
             });
         }
+    }
+
+    private function declareMcpSurface(): void
+    {
+        config([
+            'built-for-cloud.mcp.path' => config('sink-server.mcp.read_path', '/mcp/read'),
+            'built-for-cloud.mcp.write_path' => null,
+            'built-for-cloud.mcp.delegated' => true,
+        ]);
     }
 
     private function registerSinkConnection(): void

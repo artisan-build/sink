@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\SinkServer\Models\Message as SinkMessage;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\Storage;
@@ -17,8 +24,14 @@ use ZBateson\MailMimeParser\Message as MimeMessage;
 
 #[Description('Safely assert whether a message body contains a substring. Returns only a boolean and occurrence count, never body text.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Metadata)]
+#[ToolEffect(Effect::Read)]
 final class BodyMatchesTool extends Tool
 {
+    use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
+    use RespectsEffectCeiling;
+
     protected string $name = 'body_matches';
 
     public function handle(Request $request): Response
