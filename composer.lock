@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "25c9d879d6a3c2f913957da0896ec7ae",
+    "content-hash": "8b56d34507d04ab7ab8b2ef72e7442b2",
     "packages": [
         {
             "name": "artisan-build/bfc-client",
@@ -344,10 +344,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/sink-server",
-                "reference": "d953612d36407492c231e309ff01a0fe4fe8ac02"
+                "reference": "d0590ba353c61cc0cbc7335929d518e2c3d9ff55"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.19",
+                "artisan-build/built-for-cloud": "^0.19.2",
                 "artisan-build/sink-contracts": "^1.0",
                 "illuminate/bus": "^13.17",
                 "illuminate/contracts": "^13.17",
@@ -358,7 +358,7 @@
                 "illuminate/support": "^13.17",
                 "laravel/mcp": "^1.0",
                 "livewire/livewire": "^4.1",
-                "php": "^8.3",
+                "php": "^8.4",
                 "zbateson/mail-mime-parser": "^3.0.8"
             },
             "require-dev": {
@@ -12811,7 +12811,7 @@
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.3"
+        "php": "^8.4"
     },
     "platform-dev": {},
     "plugin-api-version": "2.9.0"

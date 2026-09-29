@@ -18,7 +18,7 @@ The rest of this guide is for contributors and teams that want to run their own 
 
 - A `sink` Laravel mail transport that sends `POST /ingest` a JSON envelope: a versioned JSON wrapper containing `envelope_version`, an idempotency ULID, send time, stream, base64-encoded MIME, and truncation state.
 - A signed-in inbox at `/inbox` with metadata, rendered mail, headers, links, raw source, and attachments.
-- An HTTP MCP server at `/mcp` by default. Its tools expose metadata and boolean body matches, never body text.
+- HTTP MCP servers at `/mcp` for direct installation-bearer access and `/mcp/read` for advertised delegated, read-scoped access. Their tools never return body text.
 - A `/capabilities` endpoint that clients use to check envelope compatibility.
 - An hourly `sink:maintain` task that cleans orphaned blobs and runs `sink:prune` to apply the retention and storage limits. Run `php artisan sink:prune` when you need to reclaim expired messages immediately.
 - Separate, purpose-limited credentials for message ingest and MCP access.
@@ -359,11 +359,13 @@ Run `php artisan sink:update` in the source app to compare its envelope version 
 
 Open `/inbox` after signing in to search and inspect captured messages. Sink renders HTML in a sandboxed frame and keeps raw MIME and attachment bytes in the configured storage disk.
 
-Connect an HTTP MCP client to `https://sink.example.com/mcp` with this header:
+Connect a direct client to the legacy installation-bearer door at `https://sink.example.com/mcp` with this header:
 
 ```text
 Authorization: Bearer <sink.mcp credential>
 ```
+
+Delegated clients should use the advertised, effect-scoped read door at `https://sink.example.com/mcp/read`. It exposes the nine read tools below and excludes `purge`; the direct `/mcp` door exposes all ten tools.
 
 Sink provides these ten tools:
 
@@ -393,7 +395,8 @@ Leave these unset unless you need to change the documented default. Laravel Clou
 | `SINK_RETENTION_DAYS` | `7` | Deletes messages older than this many days. |
 | `SINK_MAX_MESSAGES` | unset | Optional maximum retained message count. |
 | `SINK_MAX_TOTAL_BYTES` | unset | Optional maximum retained message bytes. |
-| `SINK_MCP_PATH` | `/mcp` | HTTP path for the MCP server. |
+| `SINK_MCP_PATH` | `/mcp` | HTTP path for the direct installation-bearer MCP server. |
+| `SINK_MCP_READ_PATH` | `/mcp/read` | HTTP path for the advertised delegated, effect-scoped read MCP server. |
 
 ### Source Laravel app
 

@@ -20,7 +20,7 @@ use Laravel\Mcp\Server\Attributes\Version;
 
 #[Name('Sink')]
 #[Version('1.0.0')]
-#[Instructions('Body-blind, assertion-oriented email testing tools. Tools expose envelope metadata, recipients, links, grouped counts, safe body match booleans, and scoped purge operations. No tool returns rendered or raw email body text.')]
+#[Instructions('Body-blind, assertion-oriented email testing tools. Tools expose envelope metadata, recipients, links, grouped counts, and safe body match booleans. No tool returns rendered or raw email body text.')]
 final class SinkMcpServer extends Server
 {
     protected array $tools = [

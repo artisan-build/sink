@@ -40,6 +40,7 @@ use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
 use Carbon\CarbonImmutable;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -52,6 +53,7 @@ use ParagonIE\Paseto\Builder;
 use ParagonIE\Paseto\Keys\Version4\AsymmetricSecretKey;
 use ParagonIE\Paseto\Protocol\Version4;
 use ParagonIE\Paseto\Purpose;
+use Symfony\Component\HttpFoundation\Response;
 
 beforeEach(function (): void {
     config([
@@ -108,6 +110,22 @@ it('fails closed for unauthenticated MCP HTTP requests and initializes with a va
     $this->postJson((string) config('sink-server.mcp.path'), $initialize, ['Authorization' => 'Bearer mcp-token'])
         ->assertOk()
         ->assertJsonPath('result.serverInfo.name', 'Sink');
+});
+
+it('scrubs the bearer before publishing the canonical credential downstream', function (): void {
+    $request = Request::create('/mcp', 'POST', server: [
+        'HTTP_AUTHORIZATION' => 'Bearer mcp-token',
+        'REDIRECT_HTTP_AUTHORIZATION' => 'Bearer mcp-token',
+    ]);
+
+    app(AuthenticateSinkMcp::class)->handle($request, function ($downstream): Response {
+        expect($downstream->headers->get('Authorization'))->toBeNull()
+            ->and($downstream->server->get('HTTP_AUTHORIZATION'))->toBeNull()
+            ->and($downstream->server->get('REDIRECT_HTTP_AUTHORIZATION'))->toBeNull()
+            ->and($downstream->attributes->get(Credential::class))->toBeInstanceOf(Credential::class);
+
+        return response('ok');
+    });
 });
 
 it('denies the fallback token for MCP requests including the purge tool', function (): void {
