@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Mcp\Middleware;
 
 use ArtisanBuild\BuiltForCloud\Auth\CredentialResolver;
+use ArtisanBuild\BuiltForCloud\Console\AssertionVerifier;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
 use ArtisanBuild\BuiltForCloud\CredentialUsageRecorder;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RequestEffectCeiling;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use Closure;
 use Illuminate\Http\Request;
@@ -28,6 +31,10 @@ final class AuthenticateSinkMcp
         $request->server->remove('HTTP_AUTHORIZATION');
         $request->server->remove('REDIRECT_HTTP_AUTHORIZATION');
 
+        if (is_string($bearer) && str_starts_with($bearer, AssertionVerifier::HEADER)) {
+            abort(401);
+        }
+
         $credential = $this->credentials->resolve(CredentialKind::Bearer, $bearer);
 
         if ($credential?->purpose !== CredentialPurpose::Mcp
@@ -38,6 +45,7 @@ final class AuthenticateSinkMcp
         }
 
         $request->attributes->set(Credential::class, $credential);
+        RequestEffectCeiling::publish($request, Effect::Destructive->value);
 
         return $next($request);
     }

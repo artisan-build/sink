@@ -4,6 +4,13 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
+use ArtisanBuild\BuiltForCloud\Mcp\Classification;
+use ArtisanBuild\BuiltForCloud\Mcp\Effect;
+use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
+use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\SinkServer\Mcp\Concerns\FiltersMessages;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
@@ -15,9 +22,14 @@ use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 
 #[Description('List recent Sink messages as metadata only. Never returns email body text.')]
 #[IsReadOnly]
+#[ToolClassification(Classification::Content)]
+#[ToolEffect(Effect::Read)]
 final class ListRecentTool extends Tool
 {
+    use AdvertisesToolClassification;
+    use AdvertisesToolEffect;
     use FiltersMessages;
+    use RespectsEffectCeiling;
 
     protected string $name = 'list_recent';
 

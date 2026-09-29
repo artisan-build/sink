@@ -11,6 +11,7 @@ use ArtisanBuild\SinkServer\Mcp\Tools\LinksTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\ListRecentTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\MessageDetailTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\PurgeTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\RecipientsTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\StatsTool;
 use Laravel\Mcp\Server;
@@ -20,8 +21,8 @@ use Laravel\Mcp\Server\Attributes\Version;
 
 #[Name('Sink')]
 #[Version('1.0.0')]
-#[Instructions('Body-blind, assertion-oriented email testing tools. Tools expose envelope metadata, recipients, links, grouped counts, and safe body match booleans. No tool returns rendered or raw email body text.')]
-final class SinkMcpServer extends Server
+#[Instructions('Body-blind, assertion-oriented email testing tools. Tools expose envelope metadata, recipients, links, grouped counts, safe body match booleans, and scoped purge operations. No tool returns rendered or raw email body text.')]
+final class LegacySinkMcpServer extends Server
 {
     protected array $tools = [
         ListAppsTool::class,
@@ -33,5 +34,6 @@ final class SinkMcpServer extends Server
         MessageDetailTool::class,
         LinksTool::class,
         BodyMatchesTool::class,
+        PurgeTool::class,
     ];
 }
