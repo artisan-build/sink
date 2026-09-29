@@ -6,6 +6,7 @@ use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
+use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\Credential;
 use ArtisanBuild\BuiltForCloud\CredentialKind;
 use ArtisanBuild\BuiltForCloud\CredentialPurpose;
@@ -17,6 +18,7 @@ use ArtisanBuild\BuiltForCloud\Mcp\Effect;
 use ArtisanBuild\BuiltForCloud\Mcp\RespectsEffectCeiling;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
+use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
@@ -40,14 +42,17 @@ use ArtisanBuild\SinkServer\Models\MessageHeader;
 use ArtisanBuild\SinkServer\Models\MessageLink;
 use ArtisanBuild\SinkServer\Models\MessageRecipient;
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 use Laravel\Mcp\Server\Middleware\ValidateMcpHeaders;
+use Laravel\Mcp\Server\Tools\Annotations\IsDestructive;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use ParagonIE\Paseto\Builder;
 use ParagonIE\Paseto\Keys\Version4\AsymmetricSecretKey;
@@ -59,16 +64,40 @@ beforeEach(function (): void {
     config([
         'built-for-cloud.console.issuer' => 'https://scalpels.test',
         'built-for-cloud.console.audience' => 'https://sink.test',
+        'built-for-cloud.mcp.two_phase.cache_store' => 'sink-two-phase',
+        'cache.stores.sink-two-phase' => [
+            'driver' => 'database',
+            'connection' => 'sink',
+            'table' => 'cache',
+            'lock_connection' => 'sink',
+            'lock_table' => 'cache_locks',
+        ],
     ]);
+
+    if (! Schema::connection('sink')->hasTable('cache')) {
+        Schema::connection('sink')->create('cache', function (Blueprint $table): void {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->bigInteger('expiration')->index();
+        });
+        Schema::connection('sink')->create('cache_locks', function (Blueprint $table): void {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->bigInteger('expiration')->index();
+        });
+    }
+
     Storage::fake((string) config('sink-server.disk'));
     mcpCredential('mcp-token');
 });
 
-it('registers the exact read-scoped web MCP transport and declares truthful metadata', function (): void {
+it('registers the exact effect-scoped MCP transports and declares truthful metadata', function (): void {
     $legacyPath = (string) config('sink-server.mcp.path');
     $readPath = (string) config('sink-server.mcp.read_path');
+    $destructivePath = (string) config('sink-server.mcp.destructive_path');
     $legacyRoute = Mcp::getWebServer(ltrim($legacyPath, '/'));
     $readRoute = Mcp::getWebServer(ltrim($readPath, '/'));
+    $destructiveRoute = Mcp::getWebServer(ltrim($destructivePath, '/'));
 
     expect($legacyRoute)->not->toBeNull()
         ->and($legacyRoute?->gatherMiddleware())->toBe([
@@ -84,17 +113,26 @@ it('registers the exact read-scoped web MCP transport and declares truthful meta
             AddWwwAuthenticateHeader::class,
             'bfc.mcp:product,read',
         ])
+        ->and($destructiveRoute)->not->toBeNull()
+        ->and($destructiveRoute?->gatherMiddleware())->toBe([
+            ReorderJsonAccept::class,
+            ValidateMcpHeaders::class,
+            AddWwwAuthenticateHeader::class,
+            'bfc.mcp:product,destructive',
+        ])
         ->and(Mcp::getLocalServer('sink'))->toBeNull()
         ->and(config('sink-server.mcp'))->toBe([
             'path' => '/mcp',
             'read_path' => '/mcp/read',
+            'destructive_path' => '/mcp/write',
         ])
         ->and(config('built-for-cloud.mcp'))->toBe([
             'path' => '/mcp/read',
             'write_path' => null,
+            'destructive_path' => '/mcp/write',
             'delegated' => true,
             'two_phase' => [
-                'cache_store' => null,
+                'cache_store' => 'sink-two-phase',
                 'ttl_seconds' => 300,
             ],
         ]);
@@ -102,7 +140,11 @@ it('registers the exact read-scoped web MCP transport and declares truthful meta
     $metadata = $this->getJson('/bfc/meta')->assertOk();
 
     expect($metadata->json('capabilities'))->toContain('mcp-serve', 'mcp-delegated', 'mcp-effect-scoped')
-        ->and($metadata->json('endpoints'))->toBe(['mcp' => '/mcp/read']);
+        ->and($metadata->json('endpoints'))->toBe([
+            'mcp' => '/mcp/read',
+            'mcp_destructive' => '/mcp/write',
+        ])
+        ->and($metadata->json('endpoints'))->not->toHaveKey('mcp_write');
 });
 
 it('fails closed for unauthenticated MCP HTTP requests and initializes with a valid token', function (): void {
@@ -126,7 +168,8 @@ it('scrubs the bearer before publishing the canonical credential downstream', fu
         expect($downstream->headers->get('Authorization'))->toBeNull()
             ->and($downstream->server->get('HTTP_AUTHORIZATION'))->toBeNull()
             ->and($downstream->server->get('REDIRECT_HTTP_AUTHORIZATION'))->toBeNull()
-            ->and($downstream->attributes->get(Credential::class))->toBeInstanceOf(Credential::class);
+            ->and($downstream->attributes->get(Credential::class))->toBeInstanceOf(Credential::class)
+            ->and($downstream->user())->toBeInstanceOf(Credential::class);
 
         return response('ok');
     });
@@ -219,7 +262,7 @@ it('never falls through from an assertion-shaped bearer to a stored credential',
     $assertionShapedBearer = 'v4.public.not-a-valid-assertion';
     $credential = mcpCredential($assertionShapedBearer);
 
-    foreach (['sink-server.mcp.path', 'sink-server.mcp.read_path'] as $path) {
+    foreach (['sink-server.mcp.path', 'sink-server.mcp.read_path', 'sink-server.mcp.destructive_path'] as $path) {
         $this->postJson((string) config($path), initializePayload(), [
             'Authorization' => 'Bearer '.$assertionShapedBearer,
         ])->assertUnauthorized();
@@ -258,11 +301,11 @@ it('preserves all ten body-blind Sink tools for the direct installation bearer',
         ->assertJsonPath('result.resources', []);
 });
 
-it('conforms exactly the nine delegated read tools', function (): void {
+it('conforms exactly the ten delegated effect-scoped tools', function (): void {
     McpDelegatedTools::assertConforms(SinkMcpServer::class);
 
     $discovered = McpDelegatedTools::discover(SinkMcpServer::class);
-    $expectedClasses = array_column(readToolDeclarations(), 'class');
+    $expectedClasses = [...array_column(readToolDeclarations(), 'class'), PurgeTool::class];
     sort($expectedClasses);
 
     expect($discovered)->toBe([
@@ -271,10 +314,10 @@ it('conforms exactly the nine delegated read tools', function (): void {
     ]);
 });
 
-it('declares and advertises the exact classification and read effect for every delegated tool', function (): void {
+it('declares and advertises the exact classification and effect for every delegated tool', function (): void {
     $signingKey = delegatedMcpSigningKey();
     fileDelegatedMcpKey($signingKey);
-    $response = delegatedMcpRequest([
+    $response = delegatedDestructiveMcpRequest([
         'jsonrpc' => '2.0',
         'id' => 'declarations',
         'method' => 'tools/list',
@@ -299,16 +342,27 @@ it('declares and advertises the exact classification and read effect for every d
             ]);
     }
 
-    expect(ToolClassification::of(PurgeTool::class))->toBeNull()
-        ->and(ToolEffect::of(PurgeTool::class))->toBeNull()
-        ->and(class_uses_recursive(PurgeTool::class))->not->toContain(
+    $purgeTraits = class_uses_recursive(PurgeTool::class);
+    $purgeWireMetadata = $wireTools->get('purge')['_meta'];
+
+    expect((new ReflectionClass(PurgeTool::class))->getAttributes(IsDestructive::class))->toHaveCount(1)
+        ->and((new ReflectionClass(PurgeTool::class))->getAttributes(TwoPhase::class))->toHaveCount(1)
+        ->and(ToolClassification::of(PurgeTool::class)?->value)->toBe(Classification::Metadata)
+        ->and(ToolEffect::of(PurgeTool::class)?->value)->toBe(Effect::Destructive)
+        ->and($purgeTraits)->toContain(
             AdvertisesToolClassification::class,
             AdvertisesToolEffect::class,
             RespectsEffectCeiling::class,
-        );
+        )
+        ->and($purgeWireMetadata['classification'])->toBe(Classification::Metadata->value)
+        ->and($purgeWireMetadata['effect'])->toBe(Effect::Destructive->value)
+        ->and($purgeWireMetadata['two_phase'])->toMatchArray([
+            'confirmationArgument' => 'confirm',
+            'protocolVersion' => 1,
+        ]);
 });
 
-it('admits delegated assertions to read tools while excluding purge', function (): void {
+it('admits delegated assertions to read tools while refusing purge at the read door', function (): void {
     ['secret' => $message] = seedMcpMessages();
     $signingKey = delegatedMcpSigningKey();
     fileDelegatedMcpKey($signingKey);
@@ -329,7 +383,7 @@ it('admits delegated assertions to read tools while excluding purge', function (
 
     delegatedMcpRequest(toolCallPayload('purge', ['app' => 'alpha']), $signingKey)
         ->assertStatus(400)
-        ->assertJsonPath('error.message', 'Tool [purge] not found.');
+        ->assertJsonPath('error.message', 'effect_above_ceiling');
 
     delegatedMcpRequest(toolCallPayload('body_matches', [
         'id' => $message->id,
@@ -340,7 +394,7 @@ it('admits delegated assertions to read tools while excluding purge', function (
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
 });
 
-it('keeps purge absent and uncallable on the read door for a direct bearer', function (): void {
+it('keeps purge absent and distinguishably refused on the read door for a direct bearer', function (): void {
     seedMcpMessages();
     $readPath = (string) config('sink-server.mcp.read_path');
     $headers = ['Authorization' => 'Bearer mcp-token'];
@@ -354,7 +408,7 @@ it('keeps purge absent and uncallable on the read door for a direct bearer', fun
 
     $this->postJson($readPath, toolCallPayload('purge', ['app' => 'alpha']), $headers)
         ->assertStatus(400)
-        ->assertJsonPath('error.message', 'Tool [purge] not found.');
+        ->assertJsonPath('error.message', 'effect_above_ceiling');
 
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
@@ -481,19 +535,29 @@ it('matches body substrings without returning matched or body text', function ()
     ]);
 });
 
-it('purges scoped messages through the delete action and refuses unscoped purges', function (): void {
+it('previews then executes a scoped direct-bearer purge with credential attribution', function (): void {
     ['secret' => $message] = seedMcpMessages();
     $credential = Credential::query()->where('name', 'mcp')->sole();
 
-    expect(mcpTool('purge'))->toBe([
-        'error' => 'refusing unscoped purge',
-        'deleted' => 0,
+    $preview = mcpToolResponse('purge', ['app' => 'alpha']);
+    $preview->assertOk()
+        ->assertJsonPath('result._meta.two_phase.phase', 'preview')
+        ->assertDontSee('TOPSECRETBODY');
+
+    expect(mcpToolContent($preview))->toBe([
+        'scope' => ['app' => 'alpha'],
+        'would_delete' => 2,
     ]);
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 
-    expect(mcpTool('purge', ['app' => 'alpha']))->toBe(['deleted' => 2]);
+    $executed = mcpToolResponse('purge', [
+        'app' => 'alpha',
+        'confirm' => mcpConfirmation($preview),
+    ])->assertOk()->assertJsonPath('result._meta.two_phase.phase', 'executed');
+
+    expect(mcpToolContent($executed))->toBe(['deleted' => 2]);
 
     $this->assertDatabaseCount('messages', 1, 'sink');
     $this->assertDatabaseMissing('messages', ['id' => $message->id], 'sink');
@@ -522,13 +586,99 @@ it('purges scoped messages through the delete action and refuses unscoped purges
         ->not->toContain('dev@example.test')
         ->not->toContain('TOPSECRETBODY');
 
-    expect(mcpTool('purge', ['app' => 'alpha']))->toBe(['deleted' => 0]);
+});
+
+it('previews then executes a delegated purge once with qualified actor attribution', function (): void {
+    seedMcpMessages();
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
+
+    $preview = delegatedDestructiveMcpToolResponse('purge', ['app' => 'alpha'], $signingKey, agency: 'Acme Testing')
+        ->assertOk()
+        ->assertJsonPath('result._meta.two_phase.phase', 'preview');
+
+    expect(mcpToolContent($preview))->toBe([
+        'scope' => ['app' => 'alpha'],
+        'would_delete' => 2,
+    ]);
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+
+    $arguments = ['app' => 'alpha', 'confirm' => mcpConfirmation($preview)];
+    $executed = delegatedDestructiveMcpToolResponse('purge', $arguments, $signingKey, agency: 'Acme Testing')
+        ->assertOk()
+        ->assertJsonPath('result._meta.two_phase.phase', 'executed');
+
+    expect(mcpToolContent($executed))->toBe(['deleted' => 2]);
+    $this->assertDatabaseCount('messages', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
+
+    $actor = DelegatedActor::query()->where('subject', 'sink-test-operator')->sole();
+    $event = AppActionEvent::query()->sole();
+
+    expect($event->getAttributes())->toMatchArray([
+        'actor_type' => 'delegated_actor',
+        'actor_ref' => $actor->getAuthIdentifier(),
+        'on_behalf_of' => 'Acme Testing',
+    ])->and($event->actor_ref)->not->toBe((string) $actor->getKey());
+
+    delegatedDestructiveMcpToolResponse('purge', $arguments, $signingKey, agency: 'Acme Testing')
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'confirmation_spent');
+
+    $this->assertDatabaseCount('messages', 1, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
 });
 
-it('rolls the MCP database purge back when audit recording fails', function (): void {
+it('binds purge confirmation to exact arguments and the delegated subject', function (): void {
     seedMcpMessages();
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
+
+    $argumentsPreview = delegatedDestructiveMcpToolResponse('purge', ['app' => 'alpha'], $signingKey);
+    delegatedDestructiveMcpToolResponse('purge', [
+        'app' => 'beta',
+        'confirm' => mcpConfirmation($argumentsPreview),
+    ], $signingKey)->assertStatus(400)->assertJsonPath('error.message', 'confirmation_mismatched');
+
+    $subjectPreview = delegatedDestructiveMcpToolResponse('purge', ['app' => 'alpha'], $signingKey);
+    delegatedDestructiveMcpToolResponse('purge', [
+        'app' => 'alpha',
+        'confirm' => mcpConfirmation($subjectPreview),
+    ], $signingKey, subject: 'another-operator')
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'confirmation_mismatched');
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+});
+
+it('refuses unscoped purge previews without minting a confirmation', function (): void {
+    seedMcpMessages();
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
+
+    delegatedDestructiveMcpToolResponse('purge', [], $signingKey)
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'confirmation_invalid');
+
+    delegatedDestructiveMcpToolResponse('purge', ['app' => ''], $signingKey)
+        ->assertOk()
+        ->assertJsonPath('result.isError', true)
+        ->assertJsonPath('result.content.0.text', 'refusing unscoped purge')
+        ->assertJsonMissingPath('result._meta.two_phase.confirmation');
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+});
+
+it('rolls the confirmed MCP database purge back when audit recording fails', function (): void {
+    seedMcpMessages();
+    $preview = mcpToolResponse('purge', ['app' => 'alpha']);
 
     DB::connection('sink')->unprepared(<<<'SQL'
         CREATE TRIGGER force_app_action_recorder_failure
@@ -539,7 +689,10 @@ it('rolls the MCP database purge back when audit recording fails', function (): 
         SQL);
 
     try {
-        $response = mcpToolResponse('purge', ['app' => 'alpha']);
+        $response = mcpToolResponse('purge', [
+            'app' => 'alpha',
+            'confirm' => mcpConfirmation($preview),
+        ]);
         $response->assertOk()->assertJsonPath('result.isError', true);
     } finally {
         DB::connection('sink')->unprepared('DROP TRIGGER IF EXISTS force_app_action_recorder_failure');
@@ -624,26 +777,34 @@ function fileDelegatedMcpKey(AsymmetricSecretKey $secret): void
     $keyring->activate('sink-test-key');
 }
 
-function delegatedMcpAssertion(AsymmetricSecretKey $secret): string
-{
+function delegatedMcpAssertion(
+    AsymmetricSecretKey $secret,
+    string $subject = 'sink-test-operator',
+    ?string $agency = null,
+): string {
     $now = CarbonImmutable::now();
+    $claims = [
+        'iss' => 'https://scalpels.test',
+        'sub' => $subject,
+        'aud' => 'https://sink.test',
+        'iat' => $now->toAtomString(),
+        'nbf' => $now->toAtomString(),
+        'exp' => $now->addSeconds(90)->toAtomString(),
+        'jti' => 'sink_mint_'.bin2hex(random_bytes(8)),
+        'display_name' => 'Sink Test Operator',
+        'role' => 'member',
+        'purpose' => 'mcp',
+    ];
+
+    if ($agency !== null) {
+        $claims['on_behalf_of'] = $agency;
+    }
 
     return (new Builder)
         ->setVersion(new Version4)
         ->setPurpose(Purpose::public())
         ->setKey($secret)
-        ->setClaims([
-            'iss' => 'https://scalpels.test',
-            'sub' => 'sink-test-operator',
-            'aud' => 'https://sink.test',
-            'iat' => $now->toAtomString(),
-            'nbf' => $now->toAtomString(),
-            'exp' => $now->addSeconds(90)->toAtomString(),
-            'jti' => 'sink_mint_'.bin2hex(random_bytes(8)),
-            'display_name' => 'Sink Test Operator',
-            'role' => 'member',
-            'purpose' => 'mcp',
-        ])
+        ->setClaims($claims)
         ->setFooterArray(['kid' => 'sink-test-key'])
         ->toString();
 }
@@ -654,6 +815,34 @@ function delegatedMcpRequest(array $payload, AsymmetricSecretKey $secret): TestR
     return test()->postJson((string) config('sink-server.mcp.read_path'), $payload, [
         'Authorization' => 'Bearer '.delegatedMcpAssertion($secret),
     ]);
+}
+
+/** @param array<string, mixed> $payload */
+function delegatedDestructiveMcpRequest(
+    array $payload,
+    AsymmetricSecretKey $secret,
+    ?string $agency = null,
+    string $subject = 'sink-test-operator',
+): TestResponse {
+    return test()->postJson((string) config('sink-server.mcp.destructive_path'), $payload, [
+        'Authorization' => 'Bearer '.delegatedMcpAssertion($secret, $subject, $agency),
+    ]);
+}
+
+/** @param array<string, mixed> $arguments */
+function delegatedDestructiveMcpToolResponse(
+    string $name,
+    array $arguments,
+    AsymmetricSecretKey $secret,
+    ?string $agency = null,
+    string $subject = 'sink-test-operator',
+): TestResponse {
+    return delegatedDestructiveMcpRequest(
+        toolCallPayload($name, $arguments),
+        $secret,
+        $agency,
+        $subject,
+    );
 }
 
 /**
@@ -729,6 +918,15 @@ function mcpToolContent(TestResponse $response): array
     expect($content)->toBeString();
 
     return json_decode($content, true, flags: JSON_THROW_ON_ERROR);
+}
+
+function mcpConfirmation(TestResponse $response): string
+{
+    $confirmation = $response->json('result._meta.two_phase.confirmation');
+
+    expect($confirmation)->toBeString()->not->toBeEmpty();
+
+    return $confirmation;
 }
 
 function seedMcpMessages(): array
