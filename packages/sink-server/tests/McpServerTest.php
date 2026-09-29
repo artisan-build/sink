@@ -93,6 +93,10 @@ it('registers the exact read-scoped web MCP transport and declares truthful meta
             'path' => '/mcp/read',
             'write_path' => null,
             'delegated' => true,
+            'two_phase' => [
+                'cache_store' => null,
+                'ttl_seconds' => 300,
+            ],
         ]);
 
     $metadata = $this->getJson('/bfc/meta')->assertOk();
