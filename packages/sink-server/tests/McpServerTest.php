@@ -5,6 +5,8 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
+use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
 use ArtisanBuild\BuiltForCloud\Credential;
@@ -22,6 +24,7 @@ use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\BuiltForCloud\SubjectType;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
+use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
@@ -49,6 +52,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
+use Laravel\Mcp\Request as McpRequest;
 use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
 use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
 use Laravel\Mcp\Server\Middleware\ValidateMcpHeaders;
@@ -552,10 +556,13 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 
-    $executed = mcpToolResponse('purge', [
+    $arguments = [
         'app' => 'alpha',
         'confirm' => mcpConfirmation($preview),
-    ])->assertOk()->assertJsonPath('result._meta.two_phase.phase', 'executed');
+    ];
+    $executed = mcpToolResponse('purge', $arguments)
+        ->assertOk()
+        ->assertJsonPath('result._meta.two_phase.phase', 'executed');
 
     expect(mcpToolContent($executed))->toBe(['deleted' => 2]);
 
@@ -586,6 +593,13 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
         ->not->toContain('dev@example.test')
         ->not->toContain('TOPSECRETBODY');
 
+    mcpToolResponse('purge', $arguments)
+        ->assertStatus(400)
+        ->assertJsonPath('error.message', 'confirmation_spent');
+
+    $this->assertDatabaseCount('messages', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
 });
 
 it('previews then executes a delegated purge once with qualified actor attribution', function (): void {
@@ -603,6 +617,7 @@ it('previews then executes a delegated purge once with qualified actor attributi
     ]);
     $this->assertDatabaseCount('messages', 3, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 
     $arguments = ['app' => 'alpha', 'confirm' => mcpConfirmation($preview)];
     $executed = delegatedDestructiveMcpToolResponse('purge', $arguments, $signingKey, agency: 'Acme Testing')
@@ -656,7 +671,7 @@ it('binds purge confirmation to exact arguments and the delegated subject', func
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
 
-it('refuses unscoped purge previews without minting a confirmation', function (): void {
+it('rejects JSON-array tool arguments before purge canonicalization', function (): void {
     seedMcpMessages();
     $signingKey = delegatedMcpSigningKey();
     fileDelegatedMcpKey($signingKey);
@@ -664,6 +679,16 @@ it('refuses unscoped purge previews without minting a confirmation', function ()
     delegatedDestructiveMcpToolResponse('purge', [], $signingKey)
         ->assertStatus(400)
         ->assertJsonPath('error.message', 'confirmation_invalid');
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+});
+
+it('refuses delegated blank-scope previews without minting a confirmation', function (): void {
+    seedMcpMessages();
+    $signingKey = delegatedMcpSigningKey();
+    fileDelegatedMcpKey($signingKey);
 
     delegatedDestructiveMcpToolResponse('purge', ['app' => ''], $signingKey)
         ->assertOk()
@@ -675,6 +700,57 @@ it('refuses unscoped purge previews without minting a confirmation', function ()
     $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
 });
+
+it('refuses legacy empty-object and blank-scope previews without minting a confirmation', function (): void {
+    ['secret' => $message] = seedMcpMessages();
+    $headers = ['Authorization' => 'Bearer mcp-token'];
+    $emptyObjectPayload = toolCallPayload('purge');
+    $emptyObjectPayload['params']['arguments'] = (object) [];
+
+    $responses = [
+        $this->postJson((string) config('sink-server.mcp.path'), $emptyObjectPayload, $headers),
+        mcpToolResponse('purge', ['app' => '']),
+    ];
+
+    foreach ($responses as $response) {
+        $response->assertOk()
+            ->assertJsonPath('result.isError', true)
+            ->assertJsonPath('result.content.0.text', 'refusing unscoped purge')
+            ->assertJsonMissingPath('result._meta.two_phase.confirmation');
+    }
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+    expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertExists('attachments/alpha/secret/guide.txt');
+});
+
+it('independently refuses unscoped purge execution before resolving write collaborators', function (array $arguments): void {
+    ['secret' => $message] = seedMcpMessages();
+    app()->bind(DeleteMessage::class, fn (): never => throw new RuntimeException('DeleteMessage must not be resolved.'));
+    app()->bind(AppActionRecorder::class, fn (): never => throw new RuntimeException('AppActionRecorder must not be resolved.'));
+
+    $response = app(PurgeTool::class)->handle(
+        new McpRequest($arguments),
+        app(ActingPrincipalResolver::class),
+    );
+
+    expect($response->content()->toArray())->toBe([
+        'type' => 'text',
+        'text' => json_encode(['error' => 'refusing unscoped purge', 'deleted' => 0], JSON_THROW_ON_ERROR),
+    ]);
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+    expect(MessageBlobCleanupIntent::query()->count())->toBe(0);
+    Storage::disk((string) config('sink-server.disk'))->assertExists($message->raw_object_key);
+    Storage::disk((string) config('sink-server.disk'))->assertExists('attachments/alpha/secret/guide.txt');
+})->with([
+    'empty arguments' => [[]],
+    'blank scope' => [['app' => '']],
+]);
 
 it('rolls the confirmed MCP database purge back when audit recording fails', function (): void {
     seedMcpMessages();
