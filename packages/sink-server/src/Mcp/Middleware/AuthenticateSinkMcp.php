@@ -45,6 +45,7 @@ final class AuthenticateSinkMcp
         }
 
         $request->attributes->set(Credential::class, $credential);
+        $request->setUserResolver(static fn (): Credential => $credential);
         RequestEffectCeiling::publish($request, Effect::Destructive->value);
 
         return $next($request);

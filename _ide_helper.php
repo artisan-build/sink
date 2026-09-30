@@ -31668,5 +31668,3 @@ namespace  {
     class Flux extends \Flux\Flux {}
     class Livewire extends \Livewire\Livewire {}
 }
-
-

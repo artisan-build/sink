@@ -11,6 +11,7 @@ use ArtisanBuild\SinkServer\Mcp\Tools\LinksTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\ListAppsTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\ListRecentTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\MessageDetailTool;
+use ArtisanBuild\SinkServer\Mcp\Tools\PurgeTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\RecipientsTool;
 use ArtisanBuild\SinkServer\Mcp\Tools\StatsTool;
 use Laravel\Mcp\Server;
@@ -33,5 +34,6 @@ final class SinkMcpServer extends Server
         MessageDetailTool::class,
         LinksTool::class,
         BodyMatchesTool::class,
+        PurgeTool::class,
     ];
 }
