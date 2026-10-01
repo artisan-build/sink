@@ -19923,7 +19923,7 @@ namespace Illuminate\Support\Facades {
          */
         public static function getColumn($table, $column)
         {
-            //Method inherited from \Illuminate\Database\Schema\Builder
+            //Method inherited from \Illuminate\Database\Schema\Builder 
             /** @var \Illuminate\Database\Schema\SQLiteBuilder $instance */
             return $instance->getColumn($table, $column);
         }
@@ -31668,3 +31668,8 @@ namespace  {
     class Flux extends \Flux\Flux {}
     class Livewire extends \Livewire\Livewire {}
 }
+
+
+
+
+
