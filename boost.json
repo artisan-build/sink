@@ -11,10 +11,11 @@
     "nightwatch": false,
     "sail": false,
     "skills": [
-        "fortify-development",
+        "infer-conventions",
         "laravel-best-practices",
+        "testing-best-practices",
+        "configure-nightwatch",
         "fluxui-development",
-        "livewire-development",
-        "pest-testing"
+        "livewire-development"
     ]
 }
