@@ -19,7 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        php-version: ['8.4', '8.5']
+        # Single-entry matrix on purpose: production runs 8.5, so that is all CI tests.
+        # Add 8.6 here when it reaches RC. Do not re-add 8.4 (nothing runs it).
+        php-version: ['8.5']
 
     steps:
       - name: Checkout code
