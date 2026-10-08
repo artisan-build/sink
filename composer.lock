@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b1625189f156ab3ffa460799829bf2fe",
+    "content-hash": "b6cf846b1928dc000edd13fe9a385c34",
     "packages": [
         {
             "name": "artisan-build/bfc-client",
@@ -68,16 +68,16 @@
         },
         {
             "name": "artisan-build/built-for-cloud",
-            "version": "v0.19.8",
+            "version": "v0.19.9",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/built-for-cloud.git",
-                "reference": "91e0239d8ee2c3553f64497b853c16b5bdbc8583"
+                "reference": "4be6f6b0e156e5e4e637d7b26511ae988d358d6f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/91e0239d8ee2c3553f64497b853c16b5bdbc8583",
-                "reference": "91e0239d8ee2c3553f64497b853c16b5bdbc8583",
+                "url": "https://api.github.com/repos/artisan-build/built-for-cloud/zipball/4be6f6b0e156e5e4e637d7b26511ae988d358d6f",
+                "reference": "4be6f6b0e156e5e4e637d7b26511ae988d358d6f",
                 "shasum": ""
             },
             "require": {
@@ -136,9 +136,9 @@
             ],
             "support": {
                 "issues": "https://github.com/artisan-build/built-for-cloud/issues",
-                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.8"
+                "source": "https://github.com/artisan-build/built-for-cloud/tree/v0.19.9"
             },
-            "time": "2026-10-01T11:52:18+00:00"
+            "time": "2026-10-08T19:35:24+00:00"
         },
         {
             "name": "artisan-build/built-for-cloud-contracts",
@@ -345,10 +345,10 @@
             "dist": {
                 "type": "path",
                 "url": "packages/sink-server",
-                "reference": "af155bf0425b3c94cb6c5b55cbf057f682cf1454"
+                "reference": "68fbf776920efb57e13e0c00f00f0e4a1e5bd96a"
             },
             "require": {
-                "artisan-build/built-for-cloud": "^0.19.8",
+                "artisan-build/built-for-cloud": "^0.19.9",
                 "artisan-build/sink-contracts": "^1.0",
                 "illuminate/bus": "^13.17",
                 "illuminate/contracts": "^13.17",
@@ -700,16 +700,16 @@
         },
         {
             "name": "composer/semver",
-            "version": "3.5.0",
+            "version": "3.5.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/composer/semver.git",
-                "reference": "f7a296f4c4cf8cb8bb83e35d6951a406bb11afa5"
+                "reference": "528948210cc46f967a4b98e83b19e76f2b504993"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/composer/semver/zipball/f7a296f4c4cf8cb8bb83e35d6951a406bb11afa5",
-                "reference": "f7a296f4c4cf8cb8bb83e35d6951a406bb11afa5",
+                "url": "https://api.github.com/repos/composer/semver/zipball/528948210cc46f967a4b98e83b19e76f2b504993",
+                "reference": "528948210cc46f967a4b98e83b19e76f2b504993",
                 "shasum": ""
             },
             "require": {
@@ -761,7 +761,7 @@
             "support": {
                 "irc": "ircs://irc.libera.chat:6697/composer",
                 "issues": "https://github.com/composer/semver/issues",
-                "source": "https://github.com/composer/semver/tree/3.5.0"
+                "source": "https://github.com/composer/semver/tree/3.5.1"
             },
             "funding": [
                 {
@@ -773,7 +773,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-09-24T14:38:51+00:00"
+            "time": "2026-10-05T13:12:12+00:00"
         },
         {
             "name": "defuse/php-encryption",
