@@ -187,16 +187,16 @@
         },
         {
             "name": "artisan-build/hone-client",
-            "version": "v1.6.0",
+            "version": "v1.6.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/hone-client.git",
-                "reference": "54daa21f4aa840a72c2e16042b5d410d64e57520"
+                "reference": "f28dbd79ad53dcb92dc7a04973921cdf60b07b53"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/hone-client/zipball/54daa21f4aa840a72c2e16042b5d410d64e57520",
-                "reference": "54daa21f4aa840a72c2e16042b5d410d64e57520",
+                "url": "https://api.github.com/repos/artisan-build/hone-client/zipball/f28dbd79ad53dcb92dc7a04973921cdf60b07b53",
+                "reference": "f28dbd79ad53dcb92dc7a04973921cdf60b07b53",
                 "shasum": ""
             },
             "require": {
@@ -238,22 +238,22 @@
                 "telemetry"
             ],
             "support": {
-                "source": "https://github.com/artisan-build/hone-client/tree/v1.6.0"
+                "source": "https://github.com/artisan-build/hone-client/tree/v1.6.1"
             },
-            "time": "2026-10-07T19:21:15+00:00"
+            "time": "2026-10-10T18:51:08+00:00"
         },
         {
             "name": "artisan-build/hone-contracts",
-            "version": "v1.6.0",
+            "version": "v1.6.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/artisan-build/hone-contracts.git",
-                "reference": "f3ce18181d98668c6bbe7aa734067a573e63f4d8"
+                "reference": "dd3f0cca937df9adb85b6636be782aa0815f5931"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/artisan-build/hone-contracts/zipball/f3ce18181d98668c6bbe7aa734067a573e63f4d8",
-                "reference": "f3ce18181d98668c6bbe7aa734067a573e63f4d8",
+                "url": "https://api.github.com/repos/artisan-build/hone-contracts/zipball/dd3f0cca937df9adb85b6636be782aa0815f5931",
+                "reference": "dd3f0cca937df9adb85b6636be782aa0815f5931",
                 "shasum": ""
             },
             "require": {
@@ -282,9 +282,9 @@
                 "telemetry"
             ],
             "support": {
-                "source": "https://github.com/artisan-build/hone-contracts/tree/v1.6.0"
+                "source": "https://github.com/artisan-build/hone-contracts/tree/v1.6.1"
             },
-            "time": "2026-10-07T19:21:20+00:00"
+            "time": "2026-10-10T18:51:12+00:00"
         },
         {
             "name": "artisan-build/sink-contracts",
