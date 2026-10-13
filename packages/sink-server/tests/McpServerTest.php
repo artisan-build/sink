@@ -607,6 +607,40 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
     $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
 });
 
+it('emits no successful audit event unless the scoped purge deleted something', function (): void {
+    seedMcpMessages();
+
+    $zero = mcpToolResponse('purge', ['app' => 'ghost-app']);
+    $zero->assertOk();
+    expect(mcpToolContent($zero))->toBe([
+        'scope' => ['app' => 'ghost-app'],
+        'would_delete' => 0,
+    ]);
+
+    $zeroDone = mcpToolResponse('purge', ['app' => 'ghost-app', 'confirm' => mcpConfirmation($zero)]);
+    $zeroDone->assertOk();
+    expect(mcpToolContent($zeroDone))->toBe(['deleted' => 0]);
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+
+    $single = mcpToolResponse('purge', ['app' => 'beta']);
+    $single->assertOk();
+    expect(mcpToolContent($single))->toBe([
+        'scope' => ['app' => 'beta'],
+        'would_delete' => 1,
+    ]);
+
+    $singleDone = mcpToolResponse('purge', ['app' => 'beta', 'confirm' => mcpConfirmation($single)]);
+    $singleDone->assertOk();
+    expect(mcpToolContent($singleDone))->toBe(['deleted' => 1]);
+
+    $this->assertDatabaseCount('messages', 2, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
+});
+
 it('previews then executes a delegated purge once with qualified actor attribution', function (): void {
     seedMcpMessages();
     $signingKey = delegatedMcpSigningKey();

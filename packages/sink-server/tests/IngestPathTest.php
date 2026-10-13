@@ -101,6 +101,28 @@ it('rejects unsupported or malformed envelopes', function (): void {
         ->assertJsonPath('message', 'Envelope is missing a non-empty string "idempotency_key".');
 });
 
+it('rejects a JSON array envelope before parsing', function (): void {
+    $payload = envelopePayload((string) Str::ulid(), simpleMime());
+
+    $this->postJson('/ingest', [$payload], ['Authorization' => 'Bearer ingest-token'])
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'Envelope JSON must decode to an object.');
+
+    expect(Message::query()->count())->toBe(0);
+});
+
+it('rejects an envelope message that is not valid base64 before storage', function (): void {
+    $payload = envelopePayload((string) Str::ulid(), simpleMime());
+    $payload['message'] = 'definitely-not-base64!!!';
+
+    $this->postJson('/ingest', $payload, ['Authorization' => 'Bearer ingest-token'])
+        ->assertUnprocessable()
+        ->assertJsonPath('message', 'Envelope "message" must be valid base64.');
+
+    expect(Message::query()->count())->toBe(0)
+        ->and(Storage::disk((string) config('sink-server.disk'))->allFiles())->toBe([]);
+});
+
 it('upserts messages by idempotency key', function (): void {
     $sameKey = (string) Str::ulid();
 
