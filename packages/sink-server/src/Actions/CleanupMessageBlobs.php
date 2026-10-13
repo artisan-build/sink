@@ -32,7 +32,7 @@ final class CleanupMessageBlobs
             $intentId = $candidate->getKey();
 
             $completed += $connection->transaction(function () use ($intentId, $disk): int {
-                $intent = MessageBlobCleanupIntent::query()->whereKey($intentId)->lockForUpdate()->first();
+                $intent = MessageBlobCleanupIntent::query()->whereKey($intentId)->first();
 
                 if (! $intent instanceof MessageBlobCleanupIntent
                     || Message::query()->where('raw_object_key', $intent->object_key)->exists()
