@@ -94,7 +94,7 @@ it('lists old orphans without deleting them during a dry run', function (): void
 });
 
 it('schedules reconciliation weekly without changing hourly maintenance', function (): void {
-    $events = collect(app(Schedule::class)->events());
+    $events = collect(resolve(Schedule::class)->events());
     $maintenance = $events->first(fn (Event $event): bool => is_string($event->command)
         && str_contains($event->command, 'sink:maintain'));
     $reconciliation = $events->first(fn (Event $event): bool => is_string($event->command)
