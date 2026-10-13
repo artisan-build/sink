@@ -543,6 +543,11 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
     ['secret' => $message] = seedMcpMessages();
     $credential = Credential::query()->where('name', 'mcp')->sole();
 
+    // A co-resident installation credential that is NOT the one authenticating
+    // these requests: attribution mutations (re-lookup by any other selector)
+    // must stay observable instead of silently re-finding the same row.
+    mcpCredential('other-mcp-token', ['name' => 'other']);
+
     $preview = mcpToolResponse('purge', ['app' => 'alpha']);
     $preview->assertOk()
         ->assertJsonPath('result._meta.two_phase.phase', 'preview')
