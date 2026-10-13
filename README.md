@@ -109,7 +109,7 @@ From a fresh checkout, run these steps in order:
 
    Keep this process running while Sink receives mail. It should report each `ParseMessage` job as `DONE`; without it, messages are accepted but their subject, recipients, headers, links, and attachments stay unparsed.
 
-9. Send a real message without waiting for the client packages to be published.
+9. Send a real message directly to the ingest endpoint.
 
    Run this Bash block in a third terminal. Paste the shown-once `sink.ingest` secret when prompted; `read` keeps it out of shell history. If the server uses port 8001, change `SINK_URL` first.
 
@@ -317,9 +317,7 @@ Do not enable a Cloud-managed mail integration on the Sink app; Sink is the inbo
 
 ## Connect a Laravel app
 
-**Release status:** no published `artisan-build/sink-client` version currently resolves from Packagist. The published v0.1.0 and v0.2.0 clients require an unpublished `artisan-build/sink-contracts ^1.0`, while this repository's compatible client, contracts, and server are version 1.0.0 but are not published. Do not run `composer require artisan-build/sink-client` until the 1.0.0 package line is published.
-
-After those 1.0.0 packages are published, run these steps in the Laravel app whose mail you want to capture:
+Run these steps in the Laravel app whose mail you want to capture:
 
 1. Install the client.
 
