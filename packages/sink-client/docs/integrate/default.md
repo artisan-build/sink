@@ -8,7 +8,7 @@ Install the published client package:
 composer require artisan-build/sink-client
 ```
 
-The package requires PHP 8.3 or later and Laravel 13.17 or later within the Laravel 13 release. Laravel discovers `ArtisanBuild\SinkClient\SinkClientServiceProvider` from the package manifest, so do not register it manually.
+The package requires PHP 8.3 or later. It supports Laravel 11.36 or later, Laravel 12, and Laravel 13. Laravel discovers `ArtisanBuild\SinkClient\SinkClientServiceProvider` from the package manifest, so do not register it manually.
 
 The package merges its configuration automatically. Publish a local config file only when the app needs to override it outside environment variables:
 
