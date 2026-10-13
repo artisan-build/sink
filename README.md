@@ -20,7 +20,8 @@ The rest of this guide is for contributors and teams that want to run their own 
 - A signed-in inbox at `/inbox` with metadata, rendered mail, headers, links, raw source, and attachments.
 - HTTP MCP servers at `/mcp` for direct installation-bearer access and `/mcp/read` for advertised delegated, read-scoped access. Their tools never return body text.
 - A `/capabilities` endpoint that clients use to check envelope compatibility.
-- An hourly `sink:maintain` task that cleans orphaned blobs and runs `sink:prune` to apply the retention and storage limits. Run `php artisan sink:prune` when you need to reclaim expired messages immediately.
+- An hourly `sink:maintain` task that retries queued blob cleanup and runs `sink:prune` to apply the retention and storage limits. Run `php artisan sink:prune` when you need to reclaim expired messages immediately.
+- A weekly `sink:reconcile-blobs` task that removes old blobs with no database reference. Its 24-hour grace period protects writes from transactions that have not committed yet.
 - Separate, purpose-limited credentials for message ingest and MCP access.
 
 A **credential purpose** is the single protocol a credential may use. Sink maps `sink.ingest` to the `consumption` purpose and `sink.mcp` to the `mcp` purpose. Do not reuse one credential for both.
