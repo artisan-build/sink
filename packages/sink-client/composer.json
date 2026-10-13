@@ -16,7 +16,7 @@
     ],
     "require": {
         "php": "^8.3",
-        "artisan-build/bfc-client": "^0.1",
+        "artisan-build/bfc-client": "^0.2",
         "artisan-build/sink-contracts": "^1.0",
         "illuminate/contracts": "^13.17",
         "illuminate/http": "^13.17",
