@@ -7,6 +7,9 @@ return [
     'ui_middleware' => ['web', 'auth', 'verified', 'bfc.auth'],
     'queue' => env('SINK_QUEUE_CONNECTION'),
     'disk' => env('SINK_DISK', env('FILESYSTEM_DISK', 'local')),
+    'orphan_blobs' => [
+        'grace_hours' => (int) env('SINK_ORPHAN_BLOB_GRACE_HOURS', 24),
+    ],
     'database' => [
         'connection' => 'sink',
         'host' => env('SINK_DB_HOST'),

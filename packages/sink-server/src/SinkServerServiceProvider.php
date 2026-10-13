@@ -6,6 +6,7 @@ namespace ArtisanBuild\SinkServer;
 
 use ArtisanBuild\SinkServer\Commands\SinkMaintainCommand;
 use ArtisanBuild\SinkServer\Commands\SinkPruneCommand;
+use ArtisanBuild\SinkServer\Commands\SinkReconcileBlobsCommand;
 use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 use ArtisanBuild\SinkServer\Http\Livewire\MessageDetail;
 use ArtisanBuild\SinkServer\Mcp\LegacySinkMcpServer;
@@ -60,10 +61,12 @@ final class SinkServerServiceProvider extends ServiceProvider
             $this->commands([
                 SinkMaintainCommand::class,
                 SinkPruneCommand::class,
+                SinkReconcileBlobsCommand::class,
             ]);
 
             $this->callAfterResolving(Schedule::class, function (Schedule $schedule): void {
                 $schedule->command('sink:maintain')->hourly();
+                $schedule->command('sink:reconcile-blobs')->weekly();
             });
         }
     }
