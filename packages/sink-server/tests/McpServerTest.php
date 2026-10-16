@@ -543,6 +543,11 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
     ['secret' => $message] = seedMcpMessages();
     $credential = Credential::query()->where('name', 'mcp')->sole();
 
+    // A co-resident installation credential that is NOT the one authenticating
+    // these requests: attribution mutations (re-lookup by any other selector)
+    // must stay observable instead of silently re-finding the same row.
+    mcpCredential('other-mcp-token', ['name' => 'other']);
+
     $preview = mcpToolResponse('purge', ['app' => 'alpha']);
     $preview->assertOk()
         ->assertJsonPath('result._meta.two_phase.phase', 'preview')
@@ -598,6 +603,40 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
         ->assertJsonPath('error.message', 'confirmation_spent');
 
     $this->assertDatabaseCount('messages', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
+});
+
+it('emits no successful audit event unless the scoped purge deleted something', function (): void {
+    seedMcpMessages();
+
+    $zero = mcpToolResponse('purge', ['app' => 'ghost-app']);
+    $zero->assertOk();
+    expect(mcpToolContent($zero))->toBe([
+        'scope' => ['app' => 'ghost-app'],
+        'would_delete' => 0,
+    ]);
+
+    $zeroDone = mcpToolResponse('purge', ['app' => 'ghost-app', 'confirm' => mcpConfirmation($zero)]);
+    $zeroDone->assertOk();
+    expect(mcpToolContent($zeroDone))->toBe(['deleted' => 0]);
+
+    $this->assertDatabaseCount('messages', 3, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_events', 0, 'sink');
+    $this->assertDatabaseCount('bfc_app_action_outbox', 0, 'sink');
+
+    $single = mcpToolResponse('purge', ['app' => 'beta']);
+    $single->assertOk();
+    expect(mcpToolContent($single))->toBe([
+        'scope' => ['app' => 'beta'],
+        'would_delete' => 1,
+    ]);
+
+    $singleDone = mcpToolResponse('purge', ['app' => 'beta', 'confirm' => mcpConfirmation($single)]);
+    $singleDone->assertOk();
+    expect(mcpToolContent($singleDone))->toBe(['deleted' => 1]);
+
+    $this->assertDatabaseCount('messages', 2, 'sink');
     $this->assertDatabaseCount('bfc_app_action_events', 1, 'sink');
     $this->assertDatabaseCount('bfc_app_action_outbox', 1, 'sink');
 });
