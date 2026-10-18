@@ -23,6 +23,9 @@ use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\BuiltForCloud\SubjectType;
+use ArtisanBuild\BuiltForCloud\Testing\ConformanceFamilyReport;
+use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
+use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
 use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
@@ -320,6 +323,8 @@ it('honors delegated identity through every exact tool without principal-owned r
         arguments: delegatedToolArguments(),
     );
 
+    $conformance = (new FleetConformance($this))->inspect(sinkConsumerConformance($expectedClasses));
+
     $probe = McpDelegatedEnforcement::probe(
         SinkMcpServer::class,
         arguments: delegatedToolArguments(),
@@ -327,7 +332,14 @@ it('honors delegated identity through every exact tool without principal-owned r
     $sortedExpectedClasses = $expectedClasses;
     sort($sortedExpectedClasses);
 
-    expect($probe['tools'])->toBe($sortedExpectedClasses)
+    expect($conformance->passed)->toBeFalse()
+        ->and($conformance->families['mcp_delegated']->discovered)->toBe($sortedExpectedClasses)
+        ->and($conformance->families['mcp_delegated']->violations)->toBe([])
+        ->and(array_map(
+            static fn (ConformanceFamilyReport $family): array => $family->violations,
+            $conformance->families,
+        ))->toBe(sinkConsumerConformanceViolations())
+        ->and($probe['tools'])->toBe($sortedExpectedClasses)
         ->and($probe['invoked'])->toBe($sortedExpectedClasses)
         ->and($probe['refusals'])->toBe([])
         ->and($probe['principal_mismatches'])->toBe([])
@@ -1004,6 +1016,142 @@ function delegatedToolArguments(): array
         MessageDetailTool::class => ['id' => 0],
         StatsTool::class => ['group_by' => 'app'],
     ];
+}
+
+/** @param list<class-string> $expectedClasses */
+function sinkConsumerConformance(array $expectedClasses): ConsumerConformance
+{
+    $consumerRoot = realpath(__DIR__.'/../../..');
+    $packageRoot = realpath(__DIR__.'/../vendor/artisan-build/built-for-cloud');
+
+    if (! is_string($consumerRoot) || ! is_string($packageRoot)) {
+        throw new RuntimeException('The Sink or Built for Cloud conformance root is unavailable.');
+    }
+
+    $sourceRoots = [
+        $consumerRoot.'/app',
+        $consumerRoot.'/packages/sink-client/src',
+        $consumerRoot.'/packages/sink-contracts/src',
+        $consumerRoot.'/packages/sink-server/src',
+    ];
+    $providerFiles = [
+        $consumerRoot.'/app/Providers/AppServiceProvider.php',
+        $consumerRoot.'/packages/sink-client/src/SinkClientServiceProvider.php',
+        $consumerRoot.'/packages/sink-server/src/SinkServerServiceProvider.php',
+        $packageRoot.'/src/BuiltForCloudServiceProvider.php',
+    ];
+    sort($sourceRoots);
+    sort($providerFiles);
+    sort($expectedClasses);
+    $expected = sinkConsumerConformanceExpected();
+    $expected['mcp_delegated'] = $expectedClasses;
+
+    return new ConsumerConformance(
+        consumer: 'sink',
+        consumerRoot: $consumerRoot,
+        packageRoot: $packageRoot,
+        sourceRoots: $sourceRoots,
+        providerFiles: $providerFiles,
+        runtimeAssertions: ['meta'],
+        capabilities: ['mcp-delegated'],
+        purposeMappings: [],
+        mcpServer: SinkMcpServer::class,
+        expected: $expected,
+    );
+}
+
+/** @return array<string, list<string>> */
+function sinkConsumerConformanceExpected(): array
+{
+    return [
+        'runtime.meta' => [],
+        'runtime.auth_schema' => [],
+        'runtime.credential_listing' => [],
+        'runtime.transport_parity' => [],
+        'thin_host' => [],
+        'credential_paths' => [
+            'path:Basic|ArtisanBuild\BuiltForCloud\Auth\BasicAuthenticator',
+            'path:Bearer|ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator',
+            'path:HMAC|Http\Middleware\VerifyHmacSignature+Hmac\HmacVerifier',
+            'path:MCP|Http\Middleware\AuthenticateMcp:store-bearer+v4.public',
+            'path:asymmetric|Actions\MintCredential::mintEnrollment+CompleteAsymmetricEnrollment+AsymmetricVerificationKeys',
+            'path:device|Http\Controllers\DeviceAuthorizations+Actions\StartDeviceAuthorization/DecideDeviceAuthorization/PollDeviceAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
+            'path:enrollment|OnboardingToken+POST:/bfc/claim,/bfc/onboarding/issue,/exchange,/verify',
+            'path:loopback|Http\Controllers\LoopbackAuthorizations+Actions\StartLoopbackAuthorization/DecideLoopbackAuthorization/ExchangeLoopbackAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
+            'path:system|SubjectType::Operator/Application/Installation+AuditActorType::CliOperator',
+        ],
+        'credential_writers' => [
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSecretBearing',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithPendingSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithSecret',
+            'ArtisanBuild\BuiltForCloud\OwnerCredentialMinter::mintFromHash',
+            'ArtisanBuild\BuiltForCloud\UnifiedStoreCredentialMinter::mint',
+        ],
+        'legacy_removal' => [],
+        'system_authority' => [
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleReKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleRetireKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CreateAdminCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialActivateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialListCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialMintCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRevokeCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRotateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\FreshCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\HmacRewrapCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\InstallOperatorCredentialCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OutboxDrainCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipMintClaimCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipRemintOwnerTokenCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\PruneCredentialAuthorizationsCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SigningRootEnsureCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand',
+            'ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook',
+            'ArtisanBuild\SinkClient\Commands\InstallCommand',
+            'ArtisanBuild\SinkClient\Commands\UpdateCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkMaintainCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkPruneCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkReconcileBlobsCommand',
+            'ArtisanBuild\SinkServer\Jobs\ParseMessage',
+            'Closure@package/src/SystemAuthoritySchedule.php:27',
+        ],
+        'no_signing_path' => [],
+        'ui_config_reads' => [
+            'ArtisanBuild\BuiltForCloud\AppPurposeRegistry|built-for-cloud.credentials.app_purposes|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\ManageTransitions|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.installation_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.member_management|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
+            'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
+            'ArtisanBuild\BuiltForCloud\Mcp\TwoPhaseConfirmationStore|built-for-cloud.manifest.slug|1',
+            'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
+        ],
+        'mcp_delegated' => [],
+    ];
+}
+
+/** @return array<string, list<string>> */
+function sinkConsumerConformanceViolations(): array
+{
+    $violations = array_fill_keys(ConsumerConformance::FAMILIES, []);
+    $violations['credential_paths'] = [
+        'missing-purpose-rule:ArtisanBuild\SinkServer\Http\Controllers\IngestController::ingest',
+        'missing-purpose-rule:ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp::handle',
+        'unexpected-resolver-caller:ArtisanBuild\SinkServer\Http\Controllers\IngestController::ingest',
+        'unexpected-resolver-caller:ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp::handle',
+    ];
+    $violations['system_authority'] = [
+        'schedule-reference:ArtisanBuild\SinkServer\SinkServerServiceProvider',
+    ];
+
+    return $violations;
 }
 
 function mcpRouteServerClass(?Route $route): string
