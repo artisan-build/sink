@@ -6,6 +6,7 @@ use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
@@ -22,10 +23,14 @@ use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\BuiltForCloud\SubjectType;
-use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
+use ArtisanBuild\BuiltForCloud\Testing\ConformanceFamilyReport;
+use ArtisanBuild\BuiltForCloud\Testing\ConsumerConformance;
+use ArtisanBuild\BuiltForCloud\Testing\FleetConformance;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
+use ArtisanBuild\SinkServer\Mcp\LegacySinkMcpServer;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
 use ArtisanBuild\SinkServer\Mcp\Tools\AssertCountTool;
@@ -47,6 +52,7 @@ use ArtisanBuild\SinkServer\Models\MessageRecipient;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -111,6 +117,7 @@ it('registers the exact effect-scoped MCP transports and declares truthful metad
             AuthenticateSinkMcp::class,
         ])
         ->and($readRoute)->not->toBeNull()
+        ->and($readRoute)->not->toBe($legacyRoute)
         ->and($readRoute?->gatherMiddleware())->toBe([
             ReorderJsonAccept::class,
             ValidateMcpHeaders::class,
@@ -125,6 +132,8 @@ it('registers the exact effect-scoped MCP transports and declares truthful metad
             'bfc.mcp:product,destructive',
         ])
         ->and(Mcp::getLocalServer('sink'))->toBeNull()
+        ->and(mcpRouteServerClass($legacyRoute))->toBe(LegacySinkMcpServer::class)
+        ->and(mcpRouteServerClass($readRoute))->toBe(SinkMcpServer::class)
         ->and(config('sink-server.mcp'))->toBe([
             'path' => '/mcp',
             'read_path' => '/mcp/read',
@@ -305,17 +314,39 @@ it('preserves all ten body-blind Sink tools for the direct installation bearer',
         ->assertJsonPath('result.resources', []);
 });
 
-it('conforms exactly the ten delegated effect-scoped tools', function (): void {
-    McpDelegatedTools::assertConforms(SinkMcpServer::class);
+it('honors delegated identity through every exact tool without principal-owned rows', function (): void {
+    $expectedClasses = delegatedToolClasses();
 
-    $discovered = McpDelegatedTools::discover(SinkMcpServer::class);
-    $expectedClasses = [...array_column(readToolDeclarations(), 'class'), PurgeTool::class];
-    sort($expectedClasses);
+    McpDelegatedEnforcement::assertHonors(
+        SinkMcpServer::class,
+        $expectedClasses,
+        arguments: delegatedToolArguments(),
+    );
 
-    expect($discovered)->toBe([
-        'tools' => $expectedClasses,
-        'violations' => [],
-    ]);
+    $conformance = (new FleetConformance($this))->inspect(sinkConsumerConformance($expectedClasses));
+
+    $probe = McpDelegatedEnforcement::probe(
+        SinkMcpServer::class,
+        arguments: delegatedToolArguments(),
+    );
+    $sortedExpectedClasses = $expectedClasses;
+    sort($sortedExpectedClasses);
+
+    expect($conformance->passed)->toBeFalse()
+        ->and($conformance->families['mcp_delegated']->discovered)->toBe($sortedExpectedClasses)
+        ->and($conformance->families['mcp_delegated']->violations)->toBe([])
+        ->and(array_map(
+            static fn (ConformanceFamilyReport $family): array => $family->violations,
+            $conformance->families,
+        ))->toBe(sinkConsumerConformanceViolations())
+        ->and($probe['tools'])->toBe($sortedExpectedClasses)
+        ->and($probe['invoked'])->toBe($sortedExpectedClasses)
+        ->and($probe['refusals'])->toBe([])
+        ->and($probe['principal_mismatches'])->toBe([])
+        ->and($probe['errors'])->toBe([])
+        ->and($probe['unreached'])->toBe([])
+        ->and($probe['negative_authorization'])->toBe('absent')
+        ->and($probe['violations'])->toBe([]);
 });
 
 it('declares and advertises the exact classification and effect for every delegated tool', function (): void {
@@ -729,13 +760,11 @@ it('refuses legacy empty-object and blank-scope previews without minting a confi
 
 it('independently refuses unscoped purge execution before resolving write collaborators', function (array $arguments): void {
     ['secret' => $message] = seedMcpMessages();
+    publishCurrentMcpCredential();
     app()->bind(DeleteMessage::class, fn (): never => throw new RuntimeException('DeleteMessage must not be resolved.'));
     app()->bind(AppActionRecorder::class, fn (): never => throw new RuntimeException('AppActionRecorder must not be resolved.'));
 
-    $response = app(PurgeTool::class)->handle(
-        new McpRequest($arguments),
-        app(ActingPrincipalResolver::class),
-    );
+    $response = app(PurgeTool::class)->handle(new McpRequest($arguments));
 
     expect($response->content()->toArray())->toBe([
         'type' => 'text',
@@ -751,6 +780,23 @@ it('independently refuses unscoped purge execution before resolving write collab
     'empty arguments' => [[]],
     'blank scope' => [['app' => '']],
 ]);
+
+it('resolves the canonical principal before a purge preview application error', function (): void {
+    publishCurrentMcpCredential();
+    $observed = [];
+    request()->attributes->set(
+        ActingPrincipalResolver::OBSERVER_ATTRIBUTE,
+        static function (ActingPrincipal $principal) use (&$observed): void {
+            $observed[] = $principal->identifier();
+        },
+    );
+
+    $response = app(PurgeTool::class)->preview(new McpRequest([]));
+
+    expect($response->isError())->toBeTrue()
+        ->and($observed)->toHaveCount(1)
+        ->and($observed[0])->toBe((string) Credential::query()->where('name', 'mcp')->sole()->getAuthIdentifier());
+});
 
 it('rolls the confirmed MCP database purge back when audit recording fails', function (): void {
     seedMcpMessages();
@@ -941,6 +987,194 @@ function readToolDeclarations(): array
     usort($declarations, static fn (array $left, array $right): int => $left['name'] <=> $right['name']);
 
     return $declarations;
+}
+
+/** @return list<class-string> */
+function delegatedToolClasses(): array
+{
+    return [
+        ListAppsTool::class,
+        ListRecentTool::class,
+        CountMessagesTool::class,
+        RecipientsTool::class,
+        AssertCountTool::class,
+        StatsTool::class,
+        MessageDetailTool::class,
+        LinksTool::class,
+        BodyMatchesTool::class,
+        PurgeTool::class,
+    ];
+}
+
+/** @return array<class-string, array<string, mixed>> */
+function delegatedToolArguments(): array
+{
+    return [
+        AssertCountTool::class => ['expected' => 0],
+        BodyMatchesTool::class => ['id' => 0, 'pattern' => 'probe'],
+        LinksTool::class => ['id' => 0],
+        MessageDetailTool::class => ['id' => 0],
+        StatsTool::class => ['group_by' => 'app'],
+    ];
+}
+
+/** @param list<class-string> $expectedClasses */
+function sinkConsumerConformance(array $expectedClasses): ConsumerConformance
+{
+    $consumerRoot = realpath(__DIR__.'/../../..');
+    $packageRoot = realpath(__DIR__.'/../vendor/artisan-build/built-for-cloud');
+
+    if (! is_string($consumerRoot) || ! is_string($packageRoot)) {
+        throw new RuntimeException('The Sink or Built for Cloud conformance root is unavailable.');
+    }
+
+    $sourceRoots = [
+        $consumerRoot.'/app',
+        $consumerRoot.'/packages/sink-client/src',
+        $consumerRoot.'/packages/sink-contracts/src',
+        $consumerRoot.'/packages/sink-server/src',
+    ];
+    $providerFiles = [
+        $consumerRoot.'/app/Providers/AppServiceProvider.php',
+        $consumerRoot.'/packages/sink-client/src/SinkClientServiceProvider.php',
+        $consumerRoot.'/packages/sink-server/src/SinkServerServiceProvider.php',
+        $packageRoot.'/src/BuiltForCloudServiceProvider.php',
+    ];
+    sort($sourceRoots);
+    sort($providerFiles);
+    sort($expectedClasses);
+    $expected = sinkConsumerConformanceExpected();
+    $expected['mcp_delegated'] = $expectedClasses;
+
+    return new ConsumerConformance(
+        consumer: 'sink',
+        consumerRoot: $consumerRoot,
+        packageRoot: $packageRoot,
+        sourceRoots: $sourceRoots,
+        providerFiles: $providerFiles,
+        runtimeAssertions: ['meta'],
+        capabilities: ['mcp-delegated'],
+        purposeMappings: [],
+        mcpServer: SinkMcpServer::class,
+        expected: $expected,
+    );
+}
+
+/** @return array<string, list<string>> */
+function sinkConsumerConformanceExpected(): array
+{
+    return [
+        'runtime.meta' => [],
+        'runtime.auth_schema' => [],
+        'runtime.credential_listing' => [],
+        'runtime.transport_parity' => [],
+        'thin_host' => [],
+        'credential_paths' => [
+            'path:Basic|ArtisanBuild\BuiltForCloud\Auth\BasicAuthenticator',
+            'path:Bearer|ArtisanBuild\BuiltForCloud\Auth\BearerAuthenticator',
+            'path:HMAC|Http\Middleware\VerifyHmacSignature+Hmac\HmacVerifier',
+            'path:MCP|Http\Middleware\AuthenticateMcp:store-bearer+v4.public',
+            'path:asymmetric|Actions\MintCredential::mintEnrollment+CompleteAsymmetricEnrollment+AsymmetricVerificationKeys',
+            'path:device|Http\Controllers\DeviceAuthorizations+Actions\StartDeviceAuthorization/DecideDeviceAuthorization/PollDeviceAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
+            'path:enrollment|OnboardingToken+POST:/bfc/claim,/bfc/onboarding/issue,/exchange,/verify',
+            'path:loopback|Http\Controllers\LoopbackAuthorizations+Actions\StartLoopbackAuthorization/DecideLoopbackAuthorization/ExchangeLoopbackAuthorization+BoundBearerCredentialAuthenticator+ContainCredentialAuthorizations',
+            'path:system|SubjectType::Operator/Application/Installation+AuditActorType::CliOperator',
+        ],
+        'credential_writers' => [
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSecretBearing',
+            'ArtisanBuild\BuiltForCloud\Actions\MintCredential::mintSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithEnrollment',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithPendingSigningKey',
+            'ArtisanBuild\BuiltForCloud\Actions\RotateCredential::replaceWithSecret',
+            'ArtisanBuild\BuiltForCloud\OwnerCredentialMinter::mintFromHash',
+            'ArtisanBuild\BuiltForCloud\UnifiedStoreCredentialMinter::mint',
+        ],
+        'legacy_removal' => [],
+        'system_authority' => [
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleReKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\ConsoleRetireKeyCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CreateAdminCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialActivateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialListCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialMintCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRevokeCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\CredentialRotateCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\FreshCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\HmacRewrapCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\InstallOperatorCredentialCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OutboxDrainCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipMintClaimCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\OwnershipRemintOwnerTokenCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\PruneCredentialAuthorizationsCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SigningRootEnsureCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SigningRootProvisionCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\SubjectOffboardCommand',
+            'ArtisanBuild\BuiltForCloud\Commands\WarnExpiringCredentialsCommand',
+            'ArtisanBuild\BuiltForCloud\Jobs\DeliverOwnershipWebhook',
+            'ArtisanBuild\SinkClient\Commands\InstallCommand',
+            'ArtisanBuild\SinkClient\Commands\UpdateCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkMaintainCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkPruneCommand',
+            'ArtisanBuild\SinkServer\Commands\SinkReconcileBlobsCommand',
+            'ArtisanBuild\SinkServer\Jobs\ParseMessage',
+            'Closure@package/src/SystemAuthoritySchedule.php:27',
+        ],
+        'no_signing_path' => [],
+        'ui_config_reads' => [
+            'ArtisanBuild\BuiltForCloud\AppPurposeRegistry|built-for-cloud.credentials.app_purposes|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\ManageTransitions|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.installation_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.managed_transitions|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.member_management|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.personal_credentials|1',
+            'ArtisanBuild\BuiltForCloud\Http\Controllers\UiHome|built-for-cloud.ui.session_management|1',
+            'ArtisanBuild\BuiltForCloud\LandingManifest|built-for-cloud.manifest|1',
+            'ArtisanBuild\BuiltForCloud\Mcp\TwoPhaseConfirmationStore|built-for-cloud.manifest.slug|1',
+            'ArtisanBuild\BuiltForCloud\UiCredentialPurposes|built-for-cloud.ui.credential_purposes|1',
+        ],
+        'mcp_delegated' => [],
+    ];
+}
+
+/** @return array<string, list<string>> */
+function sinkConsumerConformanceViolations(): array
+{
+    $violations = array_fill_keys(ConsumerConformance::FAMILIES, []);
+    $violations['credential_paths'] = [
+        'missing-purpose-rule:ArtisanBuild\SinkServer\Http\Controllers\IngestController::ingest',
+        'missing-purpose-rule:ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp::handle',
+        'unexpected-resolver-caller:ArtisanBuild\SinkServer\Http\Controllers\IngestController::ingest',
+        'unexpected-resolver-caller:ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp::handle',
+    ];
+    $violations['system_authority'] = [
+        'schedule-reference:ArtisanBuild\SinkServer\SinkServerServiceProvider',
+    ];
+
+    return $violations;
+}
+
+function mcpRouteServerClass(?Route $route): string
+{
+    $uses = $route?->getAction('uses');
+
+    if (! $uses instanceof Closure) {
+        throw new RuntimeException('The MCP route action is not a closure.');
+    }
+
+    $serverClass = (new ReflectionFunction($uses))->getClosureUsedVariables()['serverClass'] ?? null;
+
+    if (! is_string($serverClass)) {
+        throw new RuntimeException('The MCP route action does not declare a server class.');
+    }
+
+    return $serverClass;
+}
+
+function publishCurrentMcpCredential(): void
+{
+    $credential = Credential::query()->where('name', 'mcp')->sole();
+    request()->setUserResolver(static fn (): Credential => $credential);
 }
 
 /** @param array<string, mixed> $attributes */

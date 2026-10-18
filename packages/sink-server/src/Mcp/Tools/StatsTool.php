@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
@@ -37,6 +38,8 @@ final class StatsTool extends Tool
 
     public function handle(Request $request): Response
     {
+        app(ActingPrincipalResolver::class)->require(request());
+
         $validated = $request->validate([
             ...$this->filterRules(),
             'group_by' => ['required', 'string', Rule::in(['app', 'subject', 'recipient_domain'])],

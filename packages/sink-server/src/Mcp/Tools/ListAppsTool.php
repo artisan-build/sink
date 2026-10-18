@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
@@ -33,6 +34,8 @@ final class ListAppsTool extends Tool
 
     public function handle(Request $request): Response
     {
+        app(ActingPrincipalResolver::class)->require(request());
+
         $apps = Message::query()
             ->selectRaw('app, count(*) as aggregate_count, max(received_at) as last_seen')
             ->groupBy('app')

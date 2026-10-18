@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Mcp\Facades\Mcp;
 use Livewire\Livewire;
+use LogicException;
 
 final class SinkServerServiceProvider extends ServiceProvider
 {
@@ -73,8 +74,15 @@ final class SinkServerServiceProvider extends ServiceProvider
 
     private function declareMcpSurface(): void
     {
+        $legacyPath = (string) config('sink-server.mcp.path', '/mcp');
+        $readPath = (string) config('sink-server.mcp.read_path', '/mcp/read');
+
+        if ('/'.trim($readPath, '/') === '/'.trim($legacyPath, '/')) {
+            throw new LogicException('The advertised Sink MCP read path must not match the legacy installation-only MCP path.');
+        }
+
         config([
-            'built-for-cloud.mcp.path' => config('sink-server.mcp.read_path', '/mcp/read'),
+            'built-for-cloud.mcp.path' => $readPath,
             'built-for-cloud.mcp.write_path' => null,
             'built-for-cloud.mcp.destructive_path' => config('sink-server.mcp.destructive_path', '/mcp/write'),
             'built-for-cloud.mcp.delegated' => true,

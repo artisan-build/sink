@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ArtisanBuild\SinkServer\Tests;
 
 use ArtisanBuild\BuiltForCloud\BuiltForCloudServiceProvider;
+use ArtisanBuild\BuiltForCloud\Testing\ContractAssertions;
 use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\SinkServer\SinkServerServiceProvider;
 use Illuminate\Foundation\Application;
@@ -15,6 +16,7 @@ use Orchestra\Testbench\TestCase as Orchestra;
 
 abstract class TestCase extends Orchestra
 {
+    use ContractAssertions;
     use RefreshDatabase;
 
     /**

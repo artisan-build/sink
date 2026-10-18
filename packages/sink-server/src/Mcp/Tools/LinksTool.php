@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ArtisanBuild\SinkServer\Mcp\Tools;
 
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\Classification;
@@ -33,6 +34,8 @@ final class LinksTool extends Tool
 
     public function handle(Request $request): Response
     {
+        app(ActingPrincipalResolver::class)->require(request());
+
         $validated = $request->validate(['id' => ['required', 'integer']]);
         $message = Message::query()->with('links')->find((int) $validated['id']);
 
