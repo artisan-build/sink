@@ -59,6 +59,17 @@ test('explicit message database configuration keeps a separate connection', func
     }
 });
 
+test('advertised MCP configuration refuses the legacy installation-only path', function (string $readPath): void {
+    config()->set('sink-server.mcp.path', '/mcp');
+    config()->set('sink-server.mcp.read_path', $readPath);
+
+    expect(fn () => (new SinkServerServiceProvider(app()))->register())
+        ->toThrow(
+            LogicException::class,
+            'The advertised Sink MCP read path must not match the legacy installation-only MCP path.',
+        );
+})->with(['/mcp', 'mcp/']);
+
 test('message migrations use the configured connection', function (): void {
     config()->set('database.connections.message-migrations', [
         'driver' => 'sqlite',

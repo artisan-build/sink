@@ -7,7 +7,6 @@ namespace ArtisanBuild\SinkServer\Mcp\Tools;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionActor;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
-use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\AdvertisesToolEffect;
@@ -20,7 +19,6 @@ use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
 use ArtisanBuild\SinkServer\Mcp\Concerns\FiltersMessages;
-use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\JsonSchema\JsonSchema;
 use Illuminate\Support\Facades\DB;
 use Laravel\Mcp\Request;
@@ -45,6 +43,8 @@ final class PurgeTool extends Tool
 
     public function preview(Request $request): Response
     {
+        app(ActingPrincipalResolver::class)->require(request());
+
         $validated = $request->validate($this->filterRules());
 
         if (! $this->hasExplicitScope($validated)) {
@@ -57,8 +57,10 @@ final class PurgeTool extends Tool
         ]);
     }
 
-    public function handle(Request $request, ActingPrincipalResolver $principals): Response
+    public function handle(Request $request): Response
     {
+        $principal = app(ActingPrincipalResolver::class)->require(request());
+
         $validated = $request->validate($this->filterRules());
 
         if (! $this->hasExplicitScope($validated)) {
@@ -67,7 +69,7 @@ final class PurgeTool extends Tool
 
         $deleteMessage = app(DeleteMessage::class);
         $actions = app(AppActionRecorder::class);
-        $actor = AppActionActor::fromActingPrincipal($this->actingPrincipal($principals));
+        $actor = AppActionActor::fromActingPrincipal($principal);
 
         $deleted = DB::transaction(function () use ($validated, $deleteMessage, $actions, $actor): int {
             $deleted = 0;
@@ -95,19 +97,5 @@ final class PurgeTool extends Tool
     public function schema(JsonSchema $schema): array
     {
         return $this->filterSchema($schema);
-    }
-
-    private function actingPrincipal(ActingPrincipalResolver $principals): ActingPrincipal
-    {
-        $principal = $principals->resolve();
-
-        if ($principal->check()) {
-            return $principal;
-        }
-
-        $requestPrincipal = request()->user();
-        abort_unless($requestPrincipal instanceof Authenticatable, 401);
-
-        return ActingPrincipal::local('sink.mcp', $requestPrincipal);
     }
 }

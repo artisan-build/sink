@@ -6,6 +6,7 @@ use ArtisanBuild\BuiltForCloud\Audit\AppActionEvent;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionOutboxEntry;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionReason;
 use ArtisanBuild\BuiltForCloud\Audit\AppActionRecorder;
+use ArtisanBuild\BuiltForCloud\Console\ActingPrincipal;
 use ArtisanBuild\BuiltForCloud\Console\ActingPrincipalResolver;
 use ArtisanBuild\BuiltForCloud\Console\ConsoleKeyring;
 use ArtisanBuild\BuiltForCloud\Console\DelegatedActor;
@@ -22,10 +23,11 @@ use ArtisanBuild\BuiltForCloud\Mcp\ToolClassification;
 use ArtisanBuild\BuiltForCloud\Mcp\ToolEffect;
 use ArtisanBuild\BuiltForCloud\Mcp\TwoPhase;
 use ArtisanBuild\BuiltForCloud\SubjectType;
-use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedTools;
+use ArtisanBuild\BuiltForCloud\Testing\McpDelegatedEnforcement;
 use ArtisanBuild\BuiltForCloud\Testing\McpProductAdmission;
 use ArtisanBuild\SinkServer\Actions\DeleteMessage;
 use ArtisanBuild\SinkServer\Audit\SinkAction;
+use ArtisanBuild\SinkServer\Mcp\LegacySinkMcpServer;
 use ArtisanBuild\SinkServer\Mcp\Middleware\AuthenticateSinkMcp;
 use ArtisanBuild\SinkServer\Mcp\SinkMcpServer;
 use ArtisanBuild\SinkServer\Mcp\Tools\AssertCountTool;
@@ -47,6 +49,7 @@ use ArtisanBuild\SinkServer\Models\MessageRecipient;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Route;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
@@ -111,6 +114,7 @@ it('registers the exact effect-scoped MCP transports and declares truthful metad
             AuthenticateSinkMcp::class,
         ])
         ->and($readRoute)->not->toBeNull()
+        ->and($readRoute)->not->toBe($legacyRoute)
         ->and($readRoute?->gatherMiddleware())->toBe([
             ReorderJsonAccept::class,
             ValidateMcpHeaders::class,
@@ -125,6 +129,8 @@ it('registers the exact effect-scoped MCP transports and declares truthful metad
             'bfc.mcp:product,destructive',
         ])
         ->and(Mcp::getLocalServer('sink'))->toBeNull()
+        ->and(mcpRouteServerClass($legacyRoute))->toBe(LegacySinkMcpServer::class)
+        ->and(mcpRouteServerClass($readRoute))->toBe(SinkMcpServer::class)
         ->and(config('sink-server.mcp'))->toBe([
             'path' => '/mcp',
             'read_path' => '/mcp/read',
@@ -305,17 +311,30 @@ it('preserves all ten body-blind Sink tools for the direct installation bearer',
         ->assertJsonPath('result.resources', []);
 });
 
-it('conforms exactly the ten delegated effect-scoped tools', function (): void {
-    McpDelegatedTools::assertConforms(SinkMcpServer::class);
+it('honors delegated identity through every exact tool without principal-owned rows', function (): void {
+    $expectedClasses = delegatedToolClasses();
 
-    $discovered = McpDelegatedTools::discover(SinkMcpServer::class);
-    $expectedClasses = [...array_column(readToolDeclarations(), 'class'), PurgeTool::class];
-    sort($expectedClasses);
+    McpDelegatedEnforcement::assertHonors(
+        SinkMcpServer::class,
+        $expectedClasses,
+        arguments: delegatedToolArguments(),
+    );
 
-    expect($discovered)->toBe([
-        'tools' => $expectedClasses,
-        'violations' => [],
-    ]);
+    $probe = McpDelegatedEnforcement::probe(
+        SinkMcpServer::class,
+        arguments: delegatedToolArguments(),
+    );
+    $sortedExpectedClasses = $expectedClasses;
+    sort($sortedExpectedClasses);
+
+    expect($probe['tools'])->toBe($sortedExpectedClasses)
+        ->and($probe['invoked'])->toBe($sortedExpectedClasses)
+        ->and($probe['refusals'])->toBe([])
+        ->and($probe['principal_mismatches'])->toBe([])
+        ->and($probe['errors'])->toBe([])
+        ->and($probe['unreached'])->toBe([])
+        ->and($probe['negative_authorization'])->toBe('absent')
+        ->and($probe['violations'])->toBe([]);
 });
 
 it('declares and advertises the exact classification and effect for every delegated tool', function (): void {
@@ -729,13 +748,11 @@ it('refuses legacy empty-object and blank-scope previews without minting a confi
 
 it('independently refuses unscoped purge execution before resolving write collaborators', function (array $arguments): void {
     ['secret' => $message] = seedMcpMessages();
+    publishCurrentMcpCredential();
     app()->bind(DeleteMessage::class, fn (): never => throw new RuntimeException('DeleteMessage must not be resolved.'));
     app()->bind(AppActionRecorder::class, fn (): never => throw new RuntimeException('AppActionRecorder must not be resolved.'));
 
-    $response = app(PurgeTool::class)->handle(
-        new McpRequest($arguments),
-        app(ActingPrincipalResolver::class),
-    );
+    $response = app(PurgeTool::class)->handle(new McpRequest($arguments));
 
     expect($response->content()->toArray())->toBe([
         'type' => 'text',
@@ -751,6 +768,23 @@ it('independently refuses unscoped purge execution before resolving write collab
     'empty arguments' => [[]],
     'blank scope' => [['app' => '']],
 ]);
+
+it('resolves the canonical principal before a purge preview application error', function (): void {
+    publishCurrentMcpCredential();
+    $observed = [];
+    request()->attributes->set(
+        ActingPrincipalResolver::OBSERVER_ATTRIBUTE,
+        static function (ActingPrincipal $principal) use (&$observed): void {
+            $observed[] = $principal->identifier();
+        },
+    );
+
+    $response = app(PurgeTool::class)->preview(new McpRequest([]));
+
+    expect($response->isError())->toBeTrue()
+        ->and($observed)->toHaveCount(1)
+        ->and($observed[0])->toBe((string) Credential::query()->where('name', 'mcp')->sole()->getAuthIdentifier());
+});
 
 it('rolls the confirmed MCP database purge back when audit recording fails', function (): void {
     seedMcpMessages();
@@ -941,6 +975,58 @@ function readToolDeclarations(): array
     usort($declarations, static fn (array $left, array $right): int => $left['name'] <=> $right['name']);
 
     return $declarations;
+}
+
+/** @return list<class-string> */
+function delegatedToolClasses(): array
+{
+    return [
+        ListAppsTool::class,
+        ListRecentTool::class,
+        CountMessagesTool::class,
+        RecipientsTool::class,
+        AssertCountTool::class,
+        StatsTool::class,
+        MessageDetailTool::class,
+        LinksTool::class,
+        BodyMatchesTool::class,
+        PurgeTool::class,
+    ];
+}
+
+/** @return array<class-string, array<string, mixed>> */
+function delegatedToolArguments(): array
+{
+    return [
+        AssertCountTool::class => ['expected' => 0],
+        BodyMatchesTool::class => ['id' => 0, 'pattern' => 'probe'],
+        LinksTool::class => ['id' => 0],
+        MessageDetailTool::class => ['id' => 0],
+        StatsTool::class => ['group_by' => 'app'],
+    ];
+}
+
+function mcpRouteServerClass(?Route $route): string
+{
+    $uses = $route?->getAction('uses');
+
+    if (! $uses instanceof Closure) {
+        throw new RuntimeException('The MCP route action is not a closure.');
+    }
+
+    $serverClass = (new ReflectionFunction($uses))->getClosureUsedVariables()['serverClass'] ?? null;
+
+    if (! is_string($serverClass)) {
+        throw new RuntimeException('The MCP route action does not declare a server class.');
+    }
+
+    return $serverClass;
+}
+
+function publishCurrentMcpCredential(): void
+{
+    $credential = Credential::query()->where('name', 'mcp')->sole();
+    request()->setUserResolver(static fn (): Credential => $credential);
 }
 
 /** @param array<string, mixed> $attributes */
