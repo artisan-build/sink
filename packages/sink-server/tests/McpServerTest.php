@@ -619,6 +619,10 @@ it('previews then executes a scoped direct-bearer purge with credential attribut
         'actor_ref' => (string) $credential->getKey(),
         'on_behalf_of' => null,
     ])->and($ledger->event_id)->toBe($event->id)
+        ->and($ledger->dedup_key)->toBe(AppActionRecorder::dedupKeyFor(
+            SinkAction::MessagesPurged,
+            (string) $event->id,
+        ))
         ->and($credential->refresh()->last_used_at)->not->toBeNull();
 
     $rows = json_encode([$event->getAttributes(), $ledger->getAttributes()], JSON_THROW_ON_ERROR);
