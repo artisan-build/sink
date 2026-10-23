@@ -35,8 +35,8 @@ beforeEach(function (): void {
 test('inbox routes are behind auth and available to authenticated users', function (): void {
     $message = sinkMessage(subject: 'Auth gated message');
 
-    $this->get(route('sink.inbox'))->assertRedirect(route('bfc.login'));
-    $this->get(route('sink.message', $message))->assertRedirect(route('bfc.login'));
+    $this->get(route('sink.inbox'))->assertRedirect(route('bfc.login', ['intended' => route('sink.inbox', [], false)]));
+    $this->get(route('sink.message', $message))->assertRedirect(route('bfc.login', ['intended' => route('sink.message', $message, false)]));
 
     inboxUiLogin(inboxUiUser(UserRole::Member));
 
@@ -165,7 +165,7 @@ test('scoped purge deletes message rows and blobs and refuses unauthorized or un
     Storage::disk((string) config('sink-server.disk'))->put($message->raw_object_key, 'raw bytes');
     Storage::disk((string) config('sink-server.disk'))->put($attachment->object_key, 'attach');
 
-    $this->delete(route('sink.message.destroy', $message))->assertRedirect(route('bfc.login'));
+    $this->delete(route('sink.message.destroy', $message))->assertRedirect(route('bfc.login', ['intended' => route('sink.message.destroy', $message, false)]));
     $this->actingAs($unknownRoleUser)
         ->withSession([StandaloneAccess::SESSION_VERSION_KEY => $unknownRoleUser->auth_session_version])
         ->delete(route('sink.message.destroy', $message))
