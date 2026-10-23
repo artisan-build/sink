@@ -169,9 +169,9 @@ test('installation API credentials have no Sink shell or package management auth
     $headers = ['Authorization' => 'Bearer '.$secret];
 
     $this->get(route('bfc.dashboard'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/dashboard']));
-    $this->get(route('sink.inbox'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('sink.inbox'), $headers)->assertRedirect(route('bfc.login', ['intended' => route('sink.inbox', [], false)]));
     $this->get(route('bfc.ui.home'), $headers)->assertRedirect(route('bfc.login', ['intended' => '/settings']));
-    $this->get(route('bfc.members.index'), $headers)->assertRedirect(route('bfc.login'));
+    $this->get(route('bfc.members.index'), $headers)->assertRedirect(route('bfc.login', ['intended' => route('bfc.members.index', [], false)]));
 
     expect($member->refresh()->status)->toBe('active')
         ->and($member->deactivated_at)->toBeNull()
