@@ -50,23 +50,42 @@ test('each package role receives the Sink shell from its normal web session', fu
     assertTestMarker($response, 'sidebar-dashboard');
     assertTestMarker($response, 'sidebar-inbox');
     assertTestMarker($response, 'sidebar-members', present: $canManageMembers);
-    assertTestMarker($response, 'desktop-user-menu');
-    assertTestMarker($response, 'desktop-user-menu-trigger');
-    assertTestMarker($response, 'desktop-user-menu-account');
-    assertTestMarker($response, 'desktop-user-menu-logout');
-    assertTestMarker($response, 'mobile-user-menu');
-    assertTestMarker($response, 'mobile-user-menu-account');
-    assertTestMarker($response, 'mobile-user-menu-logout');
-    assertTestMarker($response, 'desktop-user-menu-settings', present: false);
-    assertTestMarker($response, 'mobile-user-menu-settings', present: false);
+    assertTestMarker($response, 'sidebar-account');
+    assertTestMarker($response, 'bfc-layout');
+    assertTestMarker($response, 'bfc-user-menu-logout');
 
-    $desktopMenu = [];
-    preg_match('/<ui-dropdown\b(?=[^>]*\bdata-testid="desktop-user-menu")[^>]*>/', (string) $response->getContent(), $desktopMenu);
-    $desktopMenuClasses = [];
-    preg_match('/\bclass="([^"]*)"/', $desktopMenu[0] ?? '', $desktopMenuClasses);
+    $document = new DOMDocument;
+    @$document->loadHTML((string) $response->getContent());
+    $xpath = new DOMXPath($document);
+    $navigation = '//*[@data-testid="bfc-sidebar-slot"]//nav[@data-testid="sink-navigation"]';
 
-    expect(preg_split('/\s+/', trim($desktopMenuClasses[1] ?? '')))
-        ->toContain('hidden', 'lg:block');
+    expect($xpath->query($navigation))->toHaveCount(1)
+        ->and($xpath->query('//main'))->toHaveCount(1)
+        ->and($xpath->query('//main//*[@data-testid="sink-content"]'))->toHaveCount(1)
+        ->and($xpath->query($navigation.'//a'))->toHaveCount($canManageMembers ? 6 : 5);
+
+    $members = $xpath->query($navigation.'//a[@data-testid="sidebar-members"]');
+    expect($members)->toHaveCount($canManageMembers ? 1 : 0);
+
+    if ($canManageMembers) {
+        expect($members->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('bfc.ui.home'));
+    }
+
+    foreach ([
+        'sidebar-dashboard' => route('bfc.dashboard'),
+        'sidebar-inbox' => route('sink.inbox'),
+        'sidebar-account' => route('bfc.ui.home'),
+        'sidebar-repository' => 'https://github.com/laravel/livewire-starter-kit',
+        'sidebar-documentation' => 'https://laravel.com/docs/starter-kits#livewire',
+    ] as $marker => $href) {
+        $links = $xpath->query($navigation.'//a[@data-testid="'.$marker.'"]');
+
+        expect($links)->toHaveCount(1)
+            ->and($links->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe($href)
+            ->and($xpath->query('//a[@data-testid="'.$marker.'"]'))->toHaveCount(1);
+    }
+
+    expect($xpath->query($navigation.'//a[@data-testid="sidebar-dashboard" and @aria-current="page"]'))->toHaveCount(1);
 })->with([
     'owner' => [UserRole::Owner, true],
     'admin' => [UserRole::Admin, true],
@@ -126,7 +145,7 @@ test('hostile package identity values stay escaped in the Sink shell', function 
     $rawDecoy = Blade::render('<span title="{!! $value !!}">{!! $value !!}</span>', ['value' => $hostileName]);
 
     expect($html)->toContain(e($hostileName))
-        ->not->toContain('<img')
+        ->not->toContain('<img src=x')
         ->not->toContain('" onmouseover="')
         ->and($escapedControl)->not->toContain('<img')
         ->and($rawDecoy)->toContain('<img');

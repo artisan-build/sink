@@ -82,6 +82,32 @@ test('inbox list shows messages and reactive filters narrow results', function (
         ->assertDontSee('Reset Beta');
 });
 
+test('Sink mail pages keep navigation in the package sidebar and message data in main', function (string $routeName): void {
+    $message = sinkMessage(subject: 'Sidebar shell test-created message');
+    inboxUiLogin(inboxUiUser(UserRole::Member));
+
+    $response = $this->get(route($routeName, $routeName === 'sink.message' ? $message : []))
+        ->assertOk();
+
+    assertTestMarker($response, 'bfc-layout');
+    assertTestMarker($response, 'sidebar-inbox');
+    $document = new DOMDocument;
+    @$document->loadHTML((string) $response->getContent());
+    $xpath = new DOMXPath($document);
+    $navigation = '//*[@data-testid="bfc-sidebar-slot"]//*[@data-testid="sink-navigation"]';
+    $content = $xpath->query('//main//*[@data-testid="sink-content"]');
+
+    expect($xpath->query('//main'))->toHaveCount(1)
+        ->and($content)->toHaveCount(1)
+        ->and($content->item(0)?->textContent)->toContain($message->subject)
+        ->and($xpath->query($navigation))->toHaveCount(1);
+
+    $inbox = $xpath->query($navigation.'//a[@data-testid="sidebar-inbox" and @aria-current="page"]');
+    expect($inbox)->toHaveCount(1)
+        ->and($inbox->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('sink.inbox'))
+        ->and($xpath->query('//main//*[@data-testid="sink-navigation"]'))->toHaveCount(0);
+})->with(['inbox' => 'sink.inbox', 'message detail' => 'sink.message']);
+
 test('message detail shows metadata and sandboxed iframe without scripts', function (): void {
     $message = sinkMessage(subject: 'Detailed message', attachmentCount: 1, linkCount: 1);
     sinkRecipient($message, 'to', 'to@example.com');
