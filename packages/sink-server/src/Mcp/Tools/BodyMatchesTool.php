@@ -50,7 +50,13 @@ final class BodyMatchesTool extends Tool
             return Response::json(['error' => 'message not found', 'matches' => false, 'count' => 0]);
         }
 
-        $raw = Storage::disk((string) config('sink-server.disk'))->get($message->raw_object_key);
+        $disk = Storage::disk((string) config('sink-server.disk'));
+
+        if ($disk->missing($message->raw_object_key)) {
+            return Response::json(['matches' => false, 'count' => 0]);
+        }
+
+        $raw = $disk->get($message->raw_object_key);
         $parsed = MimeMessage::from($raw, false);
         $body = ($parsed->getTextContent() ?? '')."\n".($parsed->getHtmlContent() ?? '');
         $pattern = (string) $validated['pattern'];

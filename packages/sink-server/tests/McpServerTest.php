@@ -570,6 +570,17 @@ it('matches body substrings without returning matched or body text', function ()
     ]);
 });
 
+it('returns a body match miss when the raw message blob is absent', function (bool $throw): void {
+    ['secret' => $message] = seedMcpMessages();
+    $disk = (string) config('sink-server.disk');
+    Storage::fake($disk, ['throw' => $throw]);
+
+    $response = mcpToolResponse('body_matches', ['id' => $message->id, 'pattern' => 'Reset your password']);
+
+    $response->assertOk()->assertDontSee('TOPSECRETBODY');
+    expect(mcpToolContent($response))->toBe(['matches' => false, 'count' => 0]);
+})->with([false, true]);
+
 it('previews then executes a scoped direct-bearer purge with credential attribution', function (): void {
     ['secret' => $message] = seedMcpMessages();
     $credential = Credential::query()->where('name', 'mcp')->sole();
