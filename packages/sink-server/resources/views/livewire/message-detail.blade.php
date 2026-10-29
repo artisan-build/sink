@@ -16,7 +16,7 @@
     <flux:card>
         <dl class="grid gap-4 md:grid-cols-3">
             <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('App') }}</dt><dd class="font-medium">{{ $message->app }}</dd></div>
-            <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('Message ID') }}</dt><dd class="break-all font-medium">{{ $message->message_id ?: __('None') }}</dd></div>
+            <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('Message ID') }}</dt><dd class="break-all font-medium" style="word-break: break-all;">{{ $message->message_id ?: __('None') }}</dd></div>
             <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('Truncation') }}</dt><dd class="font-medium">{{ $message->truncation }}</dd></div>
             <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('Sent') }}</dt><dd>{{ $message->sent_at?->format('Y-m-d H:i:s') ?: __('Unknown') }}</dd></div>
             <div class="min-w-0"><dt class="text-xs uppercase text-zinc-500">{{ __('Received') }}</dt><dd>{{ $message->received_at?->format('Y-m-d H:i:s') }}</dd></div>
