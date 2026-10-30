@@ -6,6 +6,7 @@ use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureStandaloneAuthority;
 use ArtisanBuild\BuiltForCloud\Http\Middleware\EnsureUserIsAuthenticated;
 use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\BuiltForCloud\UserRole;
+use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Blade;
@@ -35,7 +36,7 @@ test('production roots use the Sink layout and package authentication middleware
         ->and(class_exists('App\\Models\\User'))->toBeFalse();
 });
 
-test('each package role receives the Sink shell from its normal web session', function (UserRole $role, bool $canManageMembers): void {
+test('each package role receives the Sink shell from its normal web session', function (UserRole $role): void {
     $user = consoleLayoutUser($role);
 
     consoleLayoutLogin($user);
@@ -55,18 +56,51 @@ test('each package role receives the Sink shell from its normal web session', fu
     @$document->loadHTML((string) $response->getContent());
     $xpath = new DOMXPath($document);
 
-    // The dashboard is the inbox: the app link in the shell leads here, the
-    // filters fill the sidebar, and Sink adds no navigation of its own.
+    // The dashboard is the inbox; filters occupy the sidebar and Settings its footer.
     expect($xpath->query('//*[@data-testid="sink-navigation"]'))->toHaveCount(0)
         ->and($xpath->query('//*[@data-testid="bfc-sidebar-slot"]//*[@data-testid="inbox-filters"]'))->toHaveCount(1)
+        ->and($xpath->query('//*[@data-testid="bfc-sidebar-bottom"]//a[@data-testid="sink-settings-link"]'))->toHaveCount(1)
+        ->and($xpath->query('//*[@data-testid="bfc-sidebar-bottom"]//a[@data-testid="sink-settings-link"]')->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('bfc.ui.home'))
         ->and($xpath->query('//a[@data-testid="bfc-header-app"]')->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('bfc.dashboard'))
         ->and($xpath->query('//main'))->toHaveCount(1)
         ->and($xpath->query('//main//*[@data-testid="sink-content"]'))->toHaveCount(1);
 })->with([
-    'owner' => [UserRole::Owner, true],
-    'admin' => [UserRole::Admin, true],
-    'member' => [UserRole::Member, false],
+    'owner' => [UserRole::Owner],
+    'admin' => [UserRole::Admin],
+    'member' => [UserRole::Member],
 ]);
+
+test('each package role can reach Settings from the inbox and message sidebar footer', function (UserRole $role, string $routeName): void {
+    ensureConsoleLayoutMessagesTable();
+    $user = consoleLayoutUser($role);
+    $message = Message::query()->create([
+        'idempotency_key' => (string) Str::ulid(),
+        'app' => 'settings-entry-fixture',
+        'subject' => 'Settings entry fixture '.Str::ulid(),
+        'received_at' => now(),
+        'size_bytes' => 0,
+        'truncation' => 'none',
+        'raw_object_key' => 'settings-entry-fixture.eml',
+    ]);
+    consoleLayoutLogin($user);
+
+    $response = $this->get(route($routeName, $routeName === 'sink.message' ? $message : []))
+        ->assertOk()
+        ->assertSee($message->subject);
+    $document = new DOMDocument;
+    @$document->loadHTML((string) $response->getContent());
+    $xpath = new DOMXPath($document);
+    $settings = $xpath->query('//*[@data-testid="bfc-sidebar-bottom"]//a[@data-testid="sink-settings-link"]');
+
+    expect($settings)->toHaveCount(1)
+        ->and($settings->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('bfc.ui.home'));
+
+    $this->get($settings->item(0)->attributes->getNamedItem('href')->nodeValue)->assertOk();
+})->with([
+    'owner' => [UserRole::Owner],
+    'admin' => [UserRole::Admin],
+    'member' => [UserRole::Member],
+])->with(['inbox' => 'sink.inbox', 'message' => 'sink.message']);
 
 test('the package account surface exposes the configured lifecycle navigation by role', function (UserRole $role, bool $canManageMembers, bool $canManageAuthority): void {
     $user = consoleLayoutUser($role);
