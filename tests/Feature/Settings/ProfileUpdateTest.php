@@ -26,7 +26,7 @@ test('the Sink shell presents package identity as read-only account information'
         ->assertSee($user->email)
         ->assertSee(route('bfc.ui.home'), false);
 
-    assertTestMarker($response, 'sidebar-account');
+    assertTestMarker($response, 'bfc-user-menu');
 });
 
 test('package identity cannot be updated through a Sink profile endpoint', function (): void {
