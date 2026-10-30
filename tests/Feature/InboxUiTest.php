@@ -5,6 +5,7 @@ declare(strict_types=1);
 use ArtisanBuild\BuiltForCloud\StandaloneAccess;
 use ArtisanBuild\BuiltForCloud\User;
 use ArtisanBuild\BuiltForCloud\UserRole;
+use ArtisanBuild\SinkServer\Http\Livewire\InboxFilters;
 use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 use ArtisanBuild\SinkServer\Models\Message;
 use ArtisanBuild\SinkServer\Models\MessageAttachment;
@@ -82,31 +83,76 @@ test('inbox list shows messages and reactive filters narrow results', function (
         ->assertDontSee('Reset Beta');
 });
 
-test('Sink mail pages keep navigation in the package sidebar and message data in main', function (string $routeName): void {
-    $message = sinkMessage(subject: 'Sidebar shell test-created message');
+test('Sink mail pages keep inbox filters in the package sidebar and message data in main', function (string $routeName, bool $hasFilters): void {
+    $message = sinkMessage(app: 'sidebar-test-app', subject: 'Sidebar shell test-created message');
     inboxUiLogin(inboxUiUser(UserRole::Member));
 
     $response = $this->get(route($routeName, $routeName === 'sink.message' ? $message : []))
         ->assertOk();
 
     assertTestMarker($response, 'bfc-layout');
-    assertTestMarker($response, 'sidebar-inbox');
+    assertTestMarker($response, 'inbox-filters', present: $hasFilters);
     $document = new DOMDocument;
     @$document->loadHTML((string) $response->getContent());
     $xpath = new DOMXPath($document);
-    $navigation = '//*[@data-testid="bfc-sidebar-slot"]//*[@data-testid="sink-navigation"]';
+    $filters = '//*[@data-testid="bfc-sidebar-slot"]//*[@data-testid="inbox-filters"]';
     $content = $xpath->query('//main//*[@data-testid="sink-content"]');
 
     expect($xpath->query('//main'))->toHaveCount(1)
         ->and($content)->toHaveCount(1)
         ->and($content->item(0)?->textContent)->toContain($message->subject)
-        ->and($xpath->query($navigation))->toHaveCount(1);
+        ->and($xpath->query($filters))->toHaveCount($hasFilters ? 1 : 0)
+        ->and($xpath->query('//main//*[@data-testid="inbox-filters"]'))->toHaveCount(0);
 
-    $inbox = $xpath->query($navigation.'//a[@data-testid="sidebar-inbox" and @aria-current="page"]');
-    expect($inbox)->toHaveCount(1)
-        ->and($inbox->item(0)?->attributes?->getNamedItem('href')?->nodeValue)->toBe(route('sink.inbox'))
-        ->and($xpath->query('//main//*[@data-testid="sink-navigation"]'))->toHaveCount(0);
-})->with(['inbox' => 'sink.inbox', 'message detail' => 'sink.message']);
+    if ($hasFilters) {
+        $appOption = $xpath->query($filters.'//select[@data-testid="inbox-filter-app"]/option[@value="'.$message->app.'"]');
+        expect($appOption)->toHaveCount(1)
+            ->and($appOption->item(0)?->textContent)->toBe($message->app);
+    }
+})->with([
+    'dashboard' => ['bfc.dashboard', true],
+    'inbox' => ['sink.inbox', true],
+    'message detail' => ['sink.message', false],
+]);
+
+test('sidebar filters announce changes and clearing removes the scoped purge controls', function (): void {
+    $message = sinkMessage(app: 'sidebar-filter-app', subject: 'Sidebar filter message');
+    inboxUiLogin(inboxUiUser(UserRole::Member));
+    $emptyFilters = ['app' => '', 'recipient' => '', 'subject' => '', 'receivedFrom' => '', 'receivedTo' => ''];
+
+    Livewire::withQueryParams(['app' => $message->app])
+        ->test(InboxFilters::class)
+        ->assertSet('app', $message->app)
+        ->assertSeeHtml('data-testid="inbox-purge"')
+        ->set('subject', $message->subject)
+        ->assertDispatched('inbox-filters-changed', filters: [
+            ...$emptyFilters,
+            'app' => $message->app,
+            'subject' => $message->subject,
+        ])
+        ->call('clearFilters')
+        ->assertSet('app', '')
+        ->assertSet('subject', '')
+        ->assertDispatched('inbox-filters-changed', filters: $emptyFilters)
+        ->assertDontSeeHtml('data-testid="inbox-purge"')
+        ->assertDontSeeHtml('data-testid="inbox-filters-clear"');
+});
+
+test('sidebar filter events narrow the inbox and reset pagination', function (): void {
+    $message = sinkMessage(app: 'event-filter-app', subject: 'Event filter match');
+    $other = sinkMessage(app: 'other-filter-app', subject: 'Event filter nonmatch');
+    inboxUiLogin(inboxUiUser(UserRole::Member));
+
+    Livewire::test(InboxList::class)
+        ->call('setPage', 2)
+        ->dispatch('inbox-filters-changed', filters: ['app' => $message->app])
+        ->assertSet('paginators.page', 1)
+        ->assertSee($message->subject)
+        ->assertDontSee($other->subject)
+        ->dispatch('inbox-filters-changed', filters: [])
+        ->assertSee($message->subject)
+        ->assertSee($other->subject);
+});
 
 test('message detail shows metadata and sandboxed iframe without scripts', function (): void {
     $message = sinkMessage(subject: 'Detailed message', attachmentCount: 1, linkCount: 1);
