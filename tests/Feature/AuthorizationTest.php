@@ -69,7 +69,13 @@ test('every package role can inspect and explicitly delete or purge Sink message
     ])->assertRedirect(route('bfc.dashboard', absolute: false));
 
     $inbox = $this->get(route('sink.inbox'))->assertOk()->assertSee($message->subject);
-    assertTestMarker($inbox, 'inbox-purge');
+    assertTestMarker($inbox, 'inbox-purge', present: false);
+
+    $filteredInbox = $this->get(route('sink.inbox', ['app' => $message->app]))
+        ->assertOk()
+        ->assertSee($message->subject)
+        ->assertDontSee($otherMessage->subject);
+    assertTestMarker($filteredInbox, 'inbox-purge');
 
     $detail = $this->get(route('sink.message', $message))
         ->assertOk()

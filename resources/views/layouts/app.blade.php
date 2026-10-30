@@ -15,8 +15,17 @@
 
 <x-bfc-layout :title="$title ?? null">
     <x-slot:sidebar>
-        @include('partials.app-navigation')
+        {{-- The inbox's filters live beside it rather than above it, so the messages are what fills the page. --}}
+        @if (request()->routeIs('bfc.dashboard', 'sink.inbox'))
+            <livewire:sink-server::inbox-filters />
+        @endif
     </x-slot:sidebar>
+
+    <x-slot:sidebarFooter>
+        <a href="{{ route('bfc.ui.home') }}" class="bfc-shell-link" data-testid="sink-settings-link">
+            {{ __('Settings') }}
+        </a>
+    </x-slot:sidebarFooter>
 
     <div data-testid="sink-content">
         {{ $slot ?? '' }}

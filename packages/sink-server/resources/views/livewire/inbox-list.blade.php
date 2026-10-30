@@ -2,34 +2,13 @@
     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
             <flux:heading size="xl">{{ __('Inbox') }}</flux:heading>
-            <flux:text>{{ __('Captured mail, newest first.') }}</flux:text>
+            <flux:text>{{ __('Captured mail, newest first. Filter it from the sidebar.') }}</flux:text>
         </div>
 
         @if (session('status'))
             <flux:badge color="green">{{ session('status') }}</flux:badge>
         @endif
     </div>
-
-    <flux:card class="space-y-4">
-        <div class="grid gap-4 md:grid-cols-5">
-            <flux:input wire:model.live="app" :label="__('Source app')" placeholder="fallback" />
-            <flux:input wire:model.live="recipient" :label="__('Recipient')" placeholder="person@example.com" />
-            <flux:input wire:model.live="subject" :label="__('Subject contains')" placeholder="Welcome" />
-            <flux:input wire:model.live="receivedFrom" :label="__('Received from')" type="date" />
-            <flux:input wire:model.live="receivedTo" :label="__('Received to')" type="date" />
-        </div>
-
-        <form method="POST" action="{{ route('sink.inbox.purge') }}" onsubmit="return confirm('{{ __('Purge all messages matching the current non-empty filters?') }}')">
-                @csrf
-                @method('DELETE')
-                <input type="hidden" name="app" value="{{ $app }}">
-                <input type="hidden" name="recipient" value="{{ $recipient }}">
-                <input type="hidden" name="subject" value="{{ $subject }}">
-                <input type="hidden" name="receivedFrom" value="{{ $receivedFrom }}">
-                <input type="hidden" name="receivedTo" value="{{ $receivedTo }}">
-            <flux:button type="submit" variant="danger" size="sm" data-testid="inbox-purge">{{ __('Purge filtered scope') }}</flux:button>
-        </form>
-    </flux:card>
 
     <flux:card>
         <div class="overflow-x-auto">

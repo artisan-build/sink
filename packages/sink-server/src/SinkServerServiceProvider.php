@@ -7,6 +7,7 @@ namespace ArtisanBuild\SinkServer;
 use ArtisanBuild\SinkServer\Commands\SinkMaintainCommand;
 use ArtisanBuild\SinkServer\Commands\SinkPruneCommand;
 use ArtisanBuild\SinkServer\Commands\SinkReconcileBlobsCommand;
+use ArtisanBuild\SinkServer\Http\Livewire\InboxFilters;
 use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 use ArtisanBuild\SinkServer\Http\Livewire\MessageDetail;
 use ArtisanBuild\SinkServer\Mcp\LegacySinkMcpServer;
@@ -40,6 +41,7 @@ final class SinkServerServiceProvider extends ServiceProvider
 
         Livewire::addNamespace('sink-server', classNamespace: 'ArtisanBuild\\SinkServer\\Http\\Livewire');
         Livewire::component('sink-server::inbox-list', InboxList::class);
+        Livewire::component('sink-server::inbox-filters', InboxFilters::class);
         Livewire::component('sink-server::message-detail', MessageDetail::class);
 
         Route::prefix((string) config('sink-server.route_prefix', ''))

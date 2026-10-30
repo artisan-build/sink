@@ -7,7 +7,9 @@ namespace ArtisanBuild\SinkServer\Http\Livewire;
 use ArtisanBuild\SinkServer\Models\Message;
 use Illuminate\Contracts\View\View;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
@@ -16,14 +18,19 @@ final class InboxList extends Component
 {
     use WithPagination;
 
+    #[Url(except: '')]
     public string $app = '';
 
+    #[Url(except: '')]
     public string $recipient = '';
 
+    #[Url(except: '')]
     public string $subject = '';
 
+    #[Url(except: '')]
     public string $receivedFrom = '';
 
+    #[Url(except: '')]
     public string $receivedTo = '';
 
     public function updating(string $property): void
@@ -31,6 +38,21 @@ final class InboxList extends Component
         if (in_array($property, ['app', 'recipient', 'subject', 'receivedFrom', 'receivedTo'], true)) {
             $this->resetPage();
         }
+    }
+
+    /**
+     * Take the filters the sidebar announces, and start again from the first page.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    #[On('inbox-filters-changed')]
+    public function applyFilters(array $filters): void
+    {
+        foreach (['app', 'recipient', 'subject', 'receivedFrom', 'receivedTo'] as $property) {
+            $this->{$property} = is_string($filters[$property] ?? null) ? $filters[$property] : '';
+        }
+
+        $this->resetPage();
     }
 
     public function render(): View

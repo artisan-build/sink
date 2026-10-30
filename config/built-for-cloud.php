@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use App\Http\Controllers\DashboardController;
+use ArtisanBuild\SinkServer\Http\Livewire\InboxList;
 
 return [
     'manifest' => [
@@ -13,7 +13,7 @@ return [
         'product_url' => 'https://scalpels.app/products/sink',
     ],
 
-    'dashboard' => DashboardController::class,
+    'dashboard' => InboxList::class,
     'livewire_layout' => false,
 
     'credentials' => [
