@@ -26300,6 +26300,13 @@ namespace Illuminate\Http\Client {
             }
     }
 
+namespace ArtisanBuild\SinkServer\Http\Livewire {
+    /**
+     */
+    class InboxList extends \Livewire\Component {
+            }
+    }
+
 namespace Illuminate\View {
     /**
      */
