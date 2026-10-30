@@ -21,6 +21,12 @@
         @endif
     </x-slot:sidebar>
 
+    <x-slot:sidebarFooter>
+        <a href="{{ route('bfc.ui.home') }}" class="bfc-shell-link" data-testid="sink-settings-link">
+            {{ __('Settings') }}
+        </a>
+    </x-slot:sidebarFooter>
+
     <div data-testid="sink-content">
         {{ $slot ?? '' }}
         @yield('content')
