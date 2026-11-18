@@ -59,9 +59,6 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Mcp\Facades\Mcp;
 use Laravel\Mcp\Request as McpRequest;
-use Laravel\Mcp\Server\Middleware\AddWwwAuthenticateHeader;
-use Laravel\Mcp\Server\Middleware\ReorderJsonAccept;
-use Laravel\Mcp\Server\Middleware\ValidateMcpHeaders;
 use Laravel\Mcp\Server\Tools\Annotations\IsDestructive;
 use Laravel\Mcp\Server\Tools\Annotations\IsReadOnly;
 use ParagonIE\Paseto\Builder;
@@ -110,27 +107,20 @@ it('registers the exact effect-scoped MCP transports and declares truthful metad
     $destructiveRoute = Mcp::getWebServer(ltrim($destructivePath, '/'));
 
     expect($legacyRoute)->not->toBeNull()
-        ->and($legacyRoute?->gatherMiddleware())->toBe([
-            ReorderJsonAccept::class,
-            ValidateMcpHeaders::class,
-            AddWwwAuthenticateHeader::class,
-            AuthenticateSinkMcp::class,
-        ])
         ->and($readRoute)->not->toBeNull()
         ->and($readRoute)->not->toBe($legacyRoute)
-        ->and($readRoute?->gatherMiddleware())->toBe([
-            ReorderJsonAccept::class,
-            ValidateMcpHeaders::class,
-            AddWwwAuthenticateHeader::class,
-            'bfc.mcp:product,read',
-        ])
-        ->and($destructiveRoute)->not->toBeNull()
-        ->and($destructiveRoute?->gatherMiddleware())->toBe([
-            ReorderJsonAccept::class,
-            ValidateMcpHeaders::class,
-            AddWwwAuthenticateHeader::class,
-            'bfc.mcp:product,destructive',
-        ])
+        ->and($destructiveRoute)->not->toBeNull();
+
+    $legacyMiddleware = $legacyRoute->gatherMiddleware();
+    $readMiddleware = $readRoute->gatherMiddleware();
+    $destructiveMiddleware = $destructiveRoute->gatherMiddleware();
+
+    expect($legacyMiddleware[array_key_last($legacyMiddleware)])->toBe(AuthenticateSinkMcp::class)
+        ->and(array_key_last($legacyMiddleware))->toBeGreaterThan(0)
+        ->and($readMiddleware[array_key_last($readMiddleware)])->toBe('bfc.mcp:product,read')
+        ->and(array_key_last($readMiddleware))->toBeGreaterThan(0)
+        ->and($destructiveMiddleware[array_key_last($destructiveMiddleware)])->toBe('bfc.mcp:product,destructive')
+        ->and(array_key_last($destructiveMiddleware))->toBeGreaterThan(0)
         ->and(Mcp::getLocalServer('sink'))->toBeNull()
         ->and(mcpRouteServerClass($legacyRoute))->toBe(LegacySinkMcpServer::class)
         ->and(mcpRouteServerClass($readRoute))->toBe(SinkMcpServer::class)

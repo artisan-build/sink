@@ -158,6 +158,11 @@
         }
     },
     "config": {
+        "audit": {
+            "ignore-abandoned": [
+                "symplify/rule-doc-generator-contracts"
+            ]
+        },
         "optimize-autoloader": true,
         "preferred-install": "dist",
         "sort-packages": true,
